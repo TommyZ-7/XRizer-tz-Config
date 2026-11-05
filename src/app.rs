@@ -212,9 +212,51 @@ impl ConfigView {
             self.form != self.saved_form || self.model_path_text != self.saved_model_path_text;
     }
 
-    /// Implemented in Task 10.
-    pub fn save(&mut self, _env: &Env, _force: bool) -> bool {
-        false
+    pub fn save(&mut self, env: &Env, force: bool) -> bool {
+        if matches!(&self.state, ConfigState::Broken { .. }) {
+            self.error = Some(
+                "設定ファイルが壊れているため保存できません。修正して再読み込みしてください"
+                    .to_string(),
+            );
+            return false;
+        }
+        let normalized =
+            match config::normalize_model_path(Some(&self.model_path_text), env.home.as_deref()) {
+                Ok(path) => path,
+                Err(error) => {
+                    self.error = Some(error);
+                    return false;
+                }
+            };
+        let mut value = self.form.clone();
+        value.model_path = normalized;
+        if !force {
+            let current = config::file_fingerprint(&self.path);
+            if current != self.fingerprint {
+                self.conflict = true;
+                self.error = Some(
+                    "設定ファイルが外部で変更されました。再読み込みするか、上書き保存してください"
+                        .to_string(),
+                );
+                return false;
+            }
+        }
+        match config::save(&self.path, &self.raw, &value) {
+            Ok(outcome) => {
+                self.reload(env);
+                self.save_message = Some(match outcome.backup {
+                    Some(backup) => {
+                        format!("保存しました（バックアップ: {}）", backup.display())
+                    }
+                    None => "保存しました".to_string(),
+                });
+                true
+            }
+            Err(error) => {
+                self.error = Some(error);
+                false
+            }
+        }
     }
 }
 
@@ -428,7 +470,32 @@ impl App {
     }
 
     pub fn save_all(&mut self) {
-        self.show_toast(ToastKind::Info, "保存機能は次のタスクで実装されます");
+        if matches!(&self.config.state, ConfigState::Broken { .. }) {
+            self.show_toast(
+                ToastKind::Error,
+                "設定ファイルが壊れているため保存できません",
+            );
+            return;
+        }
+        if self.config.dirty {
+            if self.config.save(&self.env, false) {
+                let message = self
+                    .config
+                    .save_message
+                    .clone()
+                    .unwrap_or_else(|| "設定を保存しました".to_string());
+                self.show_toast(ToastKind::Success, message);
+            } else {
+                let error = self
+                    .config
+                    .error
+                    .clone()
+                    .unwrap_or_else(|| "設定を保存できませんでした".to_string());
+                self.show_toast(ToastKind::Error, error);
+            }
+        } else {
+            self.show_toast(ToastKind::Info, "変更はありません");
+        }
     }
 
     pub fn reload_all(&mut self) {
@@ -666,5 +733,82 @@ impl eframe::App for App {
         self.show_toast_area(ui);
         self.show_confirm(ui);
         ui.ctx().request_repaint_after(Duration::from_secs(1));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::env::Env;
+
+    fn temp_env() -> (tempfile::TempDir, Env) {
+        let dir = tempfile::tempdir().unwrap();
+        let env = Env {
+            home: Some(dir.path().join("home")),
+            xdg_config_home: Some(dir.path().join("config")),
+            xdg_runtime_dir: Some(dir.path().join("run")),
+            ..Default::default()
+        };
+        (dir, env)
+    }
+
+    fn config_path(env: &Env) -> PathBuf {
+        env.xdg_config_home
+            .as_ref()
+            .unwrap()
+            .join("xrizer/upscaler.json")
+    }
+
+    fn write_config(env: &Env, text: &str) {
+        let path = config_path(env);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, text).unwrap();
+    }
+
+    #[test]
+    fn save_preserves_unknown_keys_and_clears_dirty() {
+        let (_dir, env) = temp_env();
+        write_config(&env, r#"{"enabled": true, "future_key": 42}"#);
+        let mut view = ConfigView::new(&env);
+        assert!(matches!(view.state, ConfigState::Loaded));
+        view.form.radius = 0.8;
+        view.recompute_dirty();
+        assert!(view.dirty);
+        assert!(view.save(&env, false));
+        assert!(!view.dirty);
+        let text = std::fs::read_to_string(config_path(&env)).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(value["future_key"], 42);
+        assert_eq!(value["radius"].as_f64().unwrap(), f64::from(0.8_f32));
+        assert_eq!(value["enabled"], true);
+    }
+
+    #[test]
+    fn refuses_to_save_a_broken_file() {
+        let (_dir, env) = temp_env();
+        write_config(&env, "{broken");
+        let mut view = ConfigView::new(&env);
+        assert!(matches!(view.state, ConfigState::Broken { .. }));
+        assert!(!view.save(&env, false));
+        assert_eq!(
+            std::fs::read_to_string(config_path(&env)).unwrap(),
+            "{broken"
+        );
+    }
+
+    #[test]
+    fn detects_external_change_and_allows_forced_save() {
+        let (_dir, env) = temp_env();
+        write_config(&env, r#"{"radius": 0.35}"#);
+        let mut view = ConfigView::new(&env);
+        view.form.radius = 0.8;
+        view.recompute_dirty();
+        std::fs::write(config_path(&env), r#"{"radius": 0.5}"#).unwrap();
+        assert!(!view.save(&env, false));
+        assert!(view.conflict);
+        assert!(view.save(&env, true));
+        let text = std::fs::read_to_string(config_path(&env)).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(value["radius"].as_f64().unwrap(), f64::from(0.8_f32));
     }
 }
