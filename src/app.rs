@@ -297,9 +297,48 @@ impl ScaleView {
         self.error = None;
     }
 
-    /// Implemented in Task 11.
-    pub fn save(&mut self, _env: &Env, _force: bool) -> bool {
-        false
+    pub fn recompute_dirty(&mut self) {
+        self.dirty = (self.form_value - self.saved_value).abs() > 0.0005;
+    }
+
+    pub fn save(&mut self, env: &Env, force: bool) -> bool {
+        let expected = if force {
+            None
+        } else {
+            Some(self.loaded_fingerprint)
+        };
+        match scale::save(env, self.form_value, expected) {
+            Ok(outcome) => {
+                self.reload(env);
+                self.save_message = Some(match outcome.backup {
+                    Some(backup) => {
+                        format!("保存しました（バックアップ: {}）", backup.display())
+                    }
+                    None => "保存しました".to_string(),
+                });
+                true
+            }
+            Err(scale::ScaleSaveError::Conflict {
+                path,
+                current_value,
+            }) => {
+                self.conflict = true;
+                self.error = Some(format!(
+                    "外部で {} が {:.3} に変更されました。再読み込みするか、上書き保存してください",
+                    path.display(),
+                    current_value
+                ));
+                false
+            }
+            Err(scale::ScaleSaveError::NoTarget { reason }) => {
+                self.error = Some(format!("保存先がありません: {reason}"));
+                false
+            }
+            Err(scale::ScaleSaveError::Io(error)) => {
+                self.error = Some(error);
+                false
+            }
+        }
     }
 }
 
@@ -470,31 +509,48 @@ impl App {
     }
 
     pub fn save_all(&mut self) {
+        let mut saved = Vec::new();
+        let mut errors = Vec::new();
+
         if matches!(&self.config.state, ConfigState::Broken { .. }) {
-            self.show_toast(
-                ToastKind::Error,
-                "設定ファイルが壊れているため保存できません",
-            );
-            return;
-        }
-        if self.config.dirty {
+            errors.push("設定ファイルが壊れているため保存できません".to_string());
+        } else if self.config.dirty {
             if self.config.save(&self.env, false) {
-                let message = self
-                    .config
-                    .save_message
-                    .clone()
-                    .unwrap_or_else(|| "設定を保存しました".to_string());
-                self.show_toast(ToastKind::Success, message);
+                saved.push("設定".to_string());
             } else {
-                let error = self
-                    .config
-                    .error
-                    .clone()
-                    .unwrap_or_else(|| "設定を保存できませんでした".to_string());
-                self.show_toast(ToastKind::Error, error);
+                errors.push(format!(
+                    "設定: {}",
+                    self.config
+                        .error
+                        .clone()
+                        .unwrap_or_else(|| "保存できませんでした".to_string())
+                ));
             }
-        } else {
+        }
+
+        if self.scale.dirty {
+            if self.scale.save(&self.env, false) {
+                saved.push("スケール".to_string());
+            } else {
+                errors.push(format!(
+                    "スケール: {}",
+                    self.scale
+                        .error
+                        .clone()
+                        .unwrap_or_else(|| "保存できませんでした".to_string())
+                ));
+            }
+        }
+
+        if !errors.is_empty() {
+            self.show_toast(ToastKind::Error, errors.join(" / "));
+        } else if saved.is_empty() {
             self.show_toast(ToastKind::Info, "変更はありません");
+        } else {
+            self.show_toast(
+                ToastKind::Success,
+                format!("保存しました: {}", saved.join(" / ")),
+            );
         }
     }
 
@@ -794,6 +850,41 @@ mod tests {
             std::fs::read_to_string(config_path(&env)).unwrap(),
             "{broken"
         );
+    }
+
+    #[test]
+    fn scale_view_saves_to_the_effective_path() {
+        let (_dir, env) = temp_env();
+        let runtime = env.xdg_runtime_dir.as_ref().unwrap();
+        std::fs::create_dir_all(runtime).unwrap();
+        let path = runtime.join("xrizer_scale");
+        std::fs::write(&path, "0.500").unwrap();
+        let mut view = ScaleView::new(&env);
+        assert_eq!(view.form_value, 0.5);
+        view.form_value = 0.7;
+        view.recompute_dirty();
+        assert!(view.dirty);
+        assert!(view.save(&env, false));
+        assert!(!view.dirty);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "0.700");
+        assert!(path.with_file_name("xrizer_scale.bak").exists());
+    }
+
+    #[test]
+    fn scale_view_detects_conflict_and_allows_forced_save() {
+        let (_dir, env) = temp_env();
+        let runtime = env.xdg_runtime_dir.as_ref().unwrap();
+        std::fs::create_dir_all(runtime).unwrap();
+        let path = runtime.join("xrizer_scale");
+        std::fs::write(&path, "0.500").unwrap();
+        let mut view = ScaleView::new(&env);
+        view.form_value = 0.7;
+        view.recompute_dirty();
+        std::fs::write(&path, "0.900").unwrap();
+        assert!(!view.save(&env, false));
+        assert!(view.conflict);
+        assert!(view.save(&env, true));
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "0.700");
     }
 
     #[test]
