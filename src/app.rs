@@ -401,6 +401,8 @@ pub struct LayerView {
     pub busy: Option<LayerBusy>,
     pub log: String,
     pub error: Option<String>,
+    pub installed_hash: Option<u64>,
+    pub installed_hash_for: Option<(PathBuf, u64, Option<std::time::SystemTime>)>,
 }
 
 impl LayerView {
@@ -415,18 +417,50 @@ impl LayerView {
         } else {
             Some(layer::inspect_so(Path::new(&so_text)))
         };
-        Self {
+        let mut view = Self {
             so_text,
             so,
             snapshot: layer::snapshot(env),
             busy: None,
             log: String::new(),
             error: None,
-        }
+            installed_hash: None,
+            installed_hash_for: None,
+        };
+        view.update_installed_hash();
+        view
     }
 
     pub fn refresh(&mut self, env: &Env) {
         self.snapshot = layer::snapshot(env);
+        self.update_installed_hash();
+    }
+
+    pub fn update_installed_hash(&mut self) {
+        let key = match &self.snapshot.status {
+            layer::LayerStatus::Installed {
+                library_path,
+                lib_size,
+            } => {
+                let modified = std::fs::metadata(library_path)
+                    .ok()
+                    .and_then(|metadata| metadata.modified().ok());
+                Some((library_path.clone(), *lib_size, modified))
+            }
+            _ => None,
+        };
+        match key {
+            Some(key) => {
+                if self.installed_hash_for.as_ref() != Some(&key) {
+                    self.installed_hash = layer::hash_file(&key.0).ok();
+                    self.installed_hash_for = Some(key);
+                }
+            }
+            None => {
+                self.installed_hash = None;
+                self.installed_hash_for = None;
+            }
+        }
     }
 
     pub fn refresh_so(&mut self) {
@@ -506,6 +540,28 @@ impl App {
             last_poll: Instant::now(),
             last_settings_save: Instant::now(),
         }
+    }
+
+    pub fn start_layer_install(&mut self, so_path: PathBuf) {
+        let env = self.env.clone();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let result = layer::install(&env, &so_path);
+            let _ = sender.send(result);
+        });
+        self.layer.busy = Some(LayerBusy::Install(receiver));
+        self.layer.error = None;
+    }
+
+    pub fn start_layer_remove(&mut self) {
+        let env = self.env.clone();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let result = layer::remove(&env);
+            let _ = sender.send(result);
+        });
+        self.layer.busy = Some(LayerBusy::Remove(receiver));
+        self.layer.error = None;
     }
 
     pub fn start_model_install(&mut self, source: PathBuf, target: PathBuf) {
@@ -620,6 +676,44 @@ impl App {
             }
             None => {}
         }
+
+        let layer_result = match &self.layer.busy {
+            Some(LayerBusy::Install(receiver)) => Some((true, receiver.try_recv())),
+            Some(LayerBusy::Remove(receiver)) => Some((false, receiver.try_recv())),
+            None => None,
+        };
+        match layer_result {
+            Some((install, Ok(result))) => {
+                self.layer.busy = None;
+                match result {
+                    Ok(result) => {
+                        self.layer.snapshot = result.snapshot;
+                        self.layer.log = format!("{}\n{}", result.stdout, result.stderr)
+                            .trim()
+                            .to_string();
+                        self.layer.update_installed_hash();
+                        self.show_toast(
+                            ToastKind::Success,
+                            if install {
+                                "Vulkan レイヤーをインストールしました"
+                            } else {
+                                "Vulkan レイヤーを削除しました"
+                            },
+                        );
+                    }
+                    Err(error) => {
+                        self.layer.error = Some(error.clone());
+                        self.show_toast(ToastKind::Error, error);
+                    }
+                }
+            }
+            Some((_, Err(std::sync::mpsc::TryRecvError::Empty))) => {}
+            Some((_, Err(std::sync::mpsc::TryRecvError::Disconnected))) => {
+                self.layer.busy = None;
+                self.layer.error = Some("レイヤー処理スレッドが終了しました".to_string());
+            }
+            None => {}
+        }
     }
 
     pub fn apply_confirm(&mut self, action: ConfirmAction) {
@@ -628,6 +722,7 @@ impl App {
             ConfirmAction::InstallModel { source, target } => {
                 self.start_model_install(source, target);
             }
+            ConfirmAction::RemoveLayer => self.start_layer_remove(),
             _ => self.show_toast(ToastKind::Info, "この操作は次のタスクで実装されます"),
         }
     }
@@ -901,6 +996,22 @@ mod tests {
             std::fs::read_to_string(config_path(&env)).unwrap(),
             "{broken"
         );
+    }
+
+    #[test]
+    fn layer_view_caches_installed_hash() {
+        let (_dir, env) = temp_env();
+        let home = env.home.as_ref().unwrap();
+        std::fs::create_dir_all(home).unwrap();
+        let so = home.join("libxrizer_upscaler_layer.so");
+        std::fs::write(&so, b"\x7fELF\x01\x01\x01\x00dummy").unwrap();
+        let installed = layer::install(&env, &so).unwrap();
+        assert!(matches!(
+            installed.snapshot.status,
+            layer::LayerStatus::Installed { .. }
+        ));
+        let view = LayerView::new(&env, &AppSettings::default());
+        assert_eq!(view.installed_hash, layer::hash_file(&so).ok());
     }
 
     #[test]
