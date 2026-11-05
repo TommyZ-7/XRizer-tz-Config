@@ -51,7 +51,6 @@ pub struct LayerSnapshot {
 
 #[derive(Debug, Clone)]
 pub struct SoInfo {
-    pub path: PathBuf,
     pub size: u64,
     pub hash: u64,
     pub modified: Option<SystemTime>,
@@ -206,7 +205,6 @@ pub fn inspect_so(path: &Path) -> Result<SoInfo, String> {
     }
     let hash = hash_file(path)?;
     Ok(SoInfo {
-        path: path.to_path_buf(),
         size: metadata.len(),
         hash,
         modified: metadata.modified().ok(),

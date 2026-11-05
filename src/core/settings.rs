@@ -61,7 +61,7 @@ pub fn save(env: &Env, settings: &AppSettings) -> Result<WriteOutcome, String> {
     let mut text = serde_json::to_string_pretty(settings)
         .map_err(|error| format!("GUI 設定を JSON に変換できません: {error}"))?;
     text.push('\n');
-    write_atomic(&path, text.as_bytes(), BackupPolicy::BeforeReplace)
+    write_atomic(&path, text.as_bytes(), BackupPolicy::None)
 }
 
 #[cfg(test)]

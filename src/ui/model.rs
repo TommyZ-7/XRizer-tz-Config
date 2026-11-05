@@ -84,6 +84,17 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     ui.horizontal(|ui| {
         ui.label("配置先:");
         widgets::mono_path(ui, &app.model.target);
+        match &app.model.current {
+            Some(Ok(info)) => {
+                ui.label(format!("({})", info.kind.label()));
+            }
+            Some(Err(_)) => {
+                ui.label("(既存ファイルは不正)");
+            }
+            None => {
+                ui.label("(未作成)");
+            }
+        }
     });
 
     let mut source_changed = false;

@@ -87,31 +87,21 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     ui.add_space(4.0);
     ui.label(egui::RichText::new("プリセット").strong());
     ui.horizontal_wrapped(|ui| {
-        for (preset, title, description) in [
-            (
-                Preset::Fast,
-                "fast",
-                "バイリニア + 簡易シャープ。最も軽い。",
-            ),
-            (
-                Preset::Balanced,
-                "balanced",
-                "SGSR 1 + 適応シャープ。既定。",
-            ),
+        for (preset, description) in [
+            (Preset::Fast, "バイリニア + 簡易シャープ。最も軽い。"),
+            (Preset::Balanced, "SGSR 1 + 適応シャープ。既定。"),
             (
                 Preset::Fsr,
-                "fsr",
                 "FSR 1 EASU + RCAS。AA / トーンマップ済み入力向け。",
             ),
             (
                 Preset::Ml,
-                "ml",
                 "FSR 1 + 学習モデル。モデルと DP4A / Vulkan レイヤーが必要。",
             ),
         ] {
             ui.group(|ui| {
                 ui.vertical(|ui| {
-                    ui.selectable_value(&mut app.config.form.preset, preset, title);
+                    ui.selectable_value(&mut app.config.form.preset, preset, preset.label());
                     ui.set_max_width(220.0);
                     widgets::help_label(ui, description);
                 });

@@ -94,7 +94,6 @@ impl Default for UpscalerConfig {
 
 #[derive(Debug, Clone)]
 pub struct LoadedConfig {
-    pub path: PathBuf,
     pub raw: Map<String, Value>,
     pub value: UpscalerConfig,
     pub notices: Vec<String>,
@@ -103,7 +102,6 @@ pub struct LoadedConfig {
 
 #[derive(Debug, Clone)]
 pub struct BrokenConfig {
-    pub path: PathBuf,
     pub error: String,
     pub raw_text: String,
 }
@@ -155,7 +153,6 @@ pub fn load(path: &Path) -> Result<LoadedConfig, BrokenConfig> {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             return Ok(LoadedConfig {
-                path: path.to_path_buf(),
                 raw: Map::new(),
                 value: UpscalerConfig::default(),
                 notices: Vec::new(),
@@ -164,25 +161,21 @@ pub fn load(path: &Path) -> Result<LoadedConfig, BrokenConfig> {
         }
         Err(error) => {
             return Err(BrokenConfig {
-                path: path.to_path_buf(),
                 error: format!("設定ファイルを読めません: {error}"),
                 raw_text: String::new(),
             });
         }
     };
     let text = String::from_utf8(bytes).map_err(|error| BrokenConfig {
-        path: path.to_path_buf(),
         error: format!("設定ファイルが UTF-8 ではありません: {error}"),
         raw_text: String::new(),
     })?;
     let value: Value = serde_json::from_str(&text).map_err(|error| BrokenConfig {
-        path: path.to_path_buf(),
         error: format!("設定ファイルの JSON が不正です: {error}"),
         raw_text: text.clone(),
     })?;
     let Some(object) = value.as_object() else {
         return Err(BrokenConfig {
-            path: path.to_path_buf(),
             error: "設定ファイルのトップレベルがオブジェクトではありません".to_string(),
             raw_text: text,
         });
@@ -190,7 +183,6 @@ pub fn load(path: &Path) -> Result<LoadedConfig, BrokenConfig> {
     let raw = object.clone();
     let mut config: UpscalerConfig =
         serde_json::from_value(value).map_err(|error| BrokenConfig {
-            path: path.to_path_buf(),
             error: format!("設定値の型が不正です: {error}"),
             raw_text: text.clone(),
         })?;
@@ -214,7 +206,6 @@ pub fn load(path: &Path) -> Result<LoadedConfig, BrokenConfig> {
         );
     }
     Ok(LoadedConfig {
-        path: path.to_path_buf(),
         raw,
         value: config,
         notices,

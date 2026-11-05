@@ -3229,6 +3229,7 @@ name = "xrizer-tz-config"
 version = "0.1.0"
 dependencies = [
  "eframe",
+ "glow",
  "rfd",
  "serde",
  "serde_json",

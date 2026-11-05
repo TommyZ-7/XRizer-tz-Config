@@ -1,8 +1,5 @@
 //! Application state and top-level eframe shell.
 
-// Temporary until every field and action is wired in (Task 17).
-#![allow(dead_code)]
-
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
@@ -120,8 +117,8 @@ pub struct ConfigView {
 
 impl ConfigView {
     pub fn new(env: &Env) -> Self {
-        let (path, candidates) = match config::resolve_path(env) {
-            Ok(info) => (info.path, info.candidates),
+        let (path, candidates, resolved_existed) = match config::resolve_path(env) {
+            Ok(info) => (info.path, info.candidates, info.existed),
             Err(error) => {
                 let candidates = env::config_candidates(env);
                 let path = candidates
@@ -152,7 +149,11 @@ impl ConfigView {
         let mut view = Self {
             path,
             candidates,
-            state: ConfigState::Missing,
+            state: if resolved_existed {
+                ConfigState::Loaded
+            } else {
+                ConfigState::Missing
+            },
             form: UpscalerConfig::default(),
             model_path_text: String::new(),
             saved_form: UpscalerConfig::default(),
@@ -192,6 +193,7 @@ impl ConfigView {
                 self.fingerprint = config::file_fingerprint(&self.path);
                 self.conflict = false;
                 self.error = None;
+                self.save_message = None;
             }
             Err(broken) => {
                 self.state = ConfigState::Broken {
@@ -203,6 +205,7 @@ impl ConfigView {
                 self.fingerprint = config::file_fingerprint(&self.path);
                 self.conflict = false;
                 self.error = None;
+                self.save_message = None;
             }
         }
     }
@@ -295,6 +298,7 @@ impl ScaleView {
         self.dirty = false;
         self.conflict = false;
         self.error = None;
+        self.save_message = None;
     }
 
     pub fn recompute_dirty(&mut self) {
@@ -310,12 +314,18 @@ impl ScaleView {
         match scale::save(env, self.form_value, expected) {
             Ok(outcome) => {
                 self.reload(env);
-                self.save_message = Some(match outcome.backup {
-                    Some(backup) => {
-                        format!("保存しました（バックアップ: {}）", backup.display())
-                    }
-                    None => "保存しました".to_string(),
-                });
+                let backup = outcome
+                    .backup
+                    .as_ref()
+                    .map(|path| format!(" / バックアップ: {}", path.display()))
+                    .unwrap_or_default();
+                let previous = outcome
+                    .previous_value
+                    .map_or_else(|| "新規".to_string(), |value| format!("{value:.3}"));
+                self.save_message = Some(format!(
+                    "保存しました: {}（以前: {previous}）{backup}",
+                    outcome.path.display()
+                ));
                 true
             }
             Err(scale::ScaleSaveError::Conflict {
@@ -592,6 +602,15 @@ impl App {
                         .clone()
                         .unwrap_or_else(|| "保存できませんでした".to_string())
                 ));
+                if self.config.conflict {
+                    self.confirm = Some(ConfirmDialog {
+                        title: "設定ファイルを上書き".to_string(),
+                        body: "外部で変更された設定ファイルを、現在の内容で上書きしますか？"
+                            .to_string(),
+                        confirm_label: "上書き保存".to_string(),
+                        action: ConfirmAction::OverwriteConfig,
+                    });
+                }
             }
         }
 
@@ -606,6 +625,15 @@ impl App {
                         .clone()
                         .unwrap_or_else(|| "保存できませんでした".to_string())
                 ));
+                if self.scale.conflict {
+                    self.confirm = Some(ConfirmDialog {
+                        title: "スケールファイルを上書き".to_string(),
+                        body: "外部で変更されたスケールファイルを、現在の値で上書きしますか？"
+                            .to_string(),
+                        confirm_label: "上書き保存".to_string(),
+                        action: ConfirmAction::OverwriteScale,
+                    });
+                }
             }
         }
 
@@ -640,7 +668,39 @@ impl App {
         self.show_toast(ToastKind::Info, "再読み込みしました");
     }
 
-    pub fn poll_files(&mut self) {}
+    pub fn poll_files(&mut self) {
+        let config_fingerprint = config::file_fingerprint(&self.config.path);
+        if config_fingerprint != self.config.fingerprint {
+            if self.config.dirty {
+                self.config.conflict = true;
+            } else {
+                self.config.reload(&self.env);
+                self.show_toast(ToastKind::Info, "設定ファイルの外部変更を読み込みました");
+            }
+        }
+
+        let scale_snapshot = scale::snapshot(&self.env);
+        if scale_snapshot.fingerprint != self.scale.loaded_fingerprint {
+            if self.scale.dirty {
+                self.scale.conflict = true;
+            } else {
+                self.scale.snapshot = scale_snapshot;
+                self.scale.form_value = self.scale.snapshot.effective_value.unwrap_or(1.0);
+                self.scale.saved_value = self.scale.form_value;
+                self.scale.loaded_fingerprint = self.scale.snapshot.fingerprint;
+                self.scale.error = None;
+                self.scale.conflict = false;
+                self.show_toast(
+                    ToastKind::Info,
+                    "スケールファイルの外部変更を読み込みました",
+                );
+            }
+        }
+
+        self.layer.refresh(&self.env);
+        let target = self.model.target.clone();
+        self.model.refresh_current(&target);
+    }
 
     pub fn poll_background(&mut self) {
         let model_result = self
@@ -714,6 +774,19 @@ impl App {
             }
             None => {}
         }
+
+        if self.settings_dirty && self.last_settings_save.elapsed() >= Duration::from_secs(1) {
+            match settings::save(&self.env, &self.settings) {
+                Ok(_) => {
+                    self.settings_dirty = false;
+                    self.last_settings_save = Instant::now();
+                }
+                Err(error) => {
+                    self.settings_warning = Some(format!("GUI 設定を保存できません: {error}"));
+                    self.last_settings_save = Instant::now();
+                }
+            }
+        }
     }
 
     pub fn apply_confirm(&mut self, action: ConfirmAction) {
@@ -723,7 +796,40 @@ impl App {
                 self.start_model_install(source, target);
             }
             ConfirmAction::RemoveLayer => self.start_layer_remove(),
-            _ => self.show_toast(ToastKind::Info, "この操作は次のタスクで実装されます"),
+            ConfirmAction::OverwriteConfig => {
+                if self.config.save(&self.env, true) {
+                    let message = self
+                        .config
+                        .save_message
+                        .clone()
+                        .unwrap_or_else(|| "設定を保存しました".to_string());
+                    self.show_toast(ToastKind::Success, message);
+                } else {
+                    let error = self
+                        .config
+                        .error
+                        .clone()
+                        .unwrap_or_else(|| "設定を保存できませんでした".to_string());
+                    self.show_toast(ToastKind::Error, error);
+                }
+            }
+            ConfirmAction::OverwriteScale => {
+                if self.scale.save(&self.env, true) {
+                    let message = self
+                        .scale
+                        .save_message
+                        .clone()
+                        .unwrap_or_else(|| "スケールを保存しました".to_string());
+                    self.show_toast(ToastKind::Success, message);
+                } else {
+                    let error = self
+                        .scale
+                        .error
+                        .clone()
+                        .unwrap_or_else(|| "スケールを保存できませんでした".to_string());
+                    self.show_toast(ToastKind::Error, error);
+                }
+            }
         }
     }
 
@@ -935,6 +1041,10 @@ impl eframe::App for App {
         self.show_toast_area(ui);
         self.show_confirm(ui);
         ui.ctx().request_repaint_after(Duration::from_secs(1));
+    }
+
+    fn on_exit(&mut self, _gl: Option<&glow::Context>) {
+        let _ = settings::save(&self.env, &self.settings);
     }
 }
 
