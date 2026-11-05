@@ -8,12 +8,6 @@ use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BackupPolicy {
-    None,
-    BeforeReplace,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WriteOutcome {
     pub path: PathBuf,
@@ -22,26 +16,13 @@ pub struct WriteOutcome {
 
 /// Replace `path` atomically. Symlinks are resolved so the link itself is
 /// preserved; the file at the link target is replaced.
-pub fn write_atomic(
-    path: &Path,
-    bytes: &[u8],
-    backup: BackupPolicy,
-) -> Result<WriteOutcome, String> {
-    let target = resolve_target(path)?;
+pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<WriteOutcome, String> {
+    let target = resolve_regular_target(path)?;
     let parent = target
         .parent()
         .ok_or_else(|| format!("{} に親ディレクトリがありません", target.display()))?;
     fs::create_dir_all(parent)
         .map_err(|error| format!("{} を作成できません: {error}", parent.display()))?;
-
-    if let Ok(metadata) = fs::symlink_metadata(&target)
-        && !metadata.file_type().is_file()
-    {
-        return Err(format!(
-            "{} は通常ファイルではないため置き換えません",
-            target.display()
-        ));
-    }
 
     let mut temp = tempfile::NamedTempFile::new_in(parent).map_err(|error| {
         format!(
@@ -72,7 +53,7 @@ pub fn write_atomic(
         }
     }
 
-    let backup_path = if backup == BackupPolicy::BeforeReplace && target.exists() {
+    let backup_path = if target.exists() {
         let backup_path = backup_path_for(&target)?;
         fs::copy(&target, &backup_path).map_err(|error| {
             format!(
@@ -131,6 +112,21 @@ fn resolve_target(path: &Path) -> Result<PathBuf, String> {
     }
 }
 
+/// Resolve symlinks and require the existing target (if any) to be a regular
+/// file. Shared by atomic writes and the model installer.
+pub(crate) fn resolve_regular_target(path: &Path) -> Result<PathBuf, String> {
+    let target = resolve_target(path)?;
+    if let Ok(metadata) = fs::symlink_metadata(&target)
+        && !metadata.file_type().is_file()
+    {
+        return Err(format!(
+            "{} は通常ファイルではないため置き換えません",
+            target.display()
+        ));
+    }
+    Ok(target)
+}
+
 fn backup_path_for(path: &Path) -> Result<PathBuf, String> {
     let name = path
         .file_name()
@@ -146,7 +142,7 @@ mod tests {
     fn writes_new_file_and_preserves_bytes() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("a/b.json");
-        let outcome = write_atomic(&path, b"hello", BackupPolicy::None).unwrap();
+        let outcome = write_atomic(&path, b"hello").unwrap();
         assert_eq!(outcome.path, path);
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "hello");
         assert!(outcome.backup.is_none());
@@ -157,7 +153,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("upscaler.json");
         std::fs::write(&path, "old").unwrap();
-        let outcome = write_atomic(&path, b"new", BackupPolicy::BeforeReplace).unwrap();
+        let outcome = write_atomic(&path, b"new").unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "new");
         let backup = outcome.backup.unwrap();
         assert_eq!(std::fs::read_to_string(backup).unwrap(), "old");
@@ -171,7 +167,7 @@ mod tests {
         let link = dir.path().join("link.json");
         std::fs::write(&target, "old").unwrap();
         symlink(&target, &link).unwrap();
-        write_atomic(&link, b"new", BackupPolicy::None).unwrap();
+        write_atomic(&link, b"new").unwrap();
         assert!(
             std::fs::symlink_metadata(&link)
                 .unwrap()
@@ -186,7 +182,21 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("target");
         std::fs::create_dir(&path).unwrap();
-        assert!(write_atomic(&path, b"x", BackupPolicy::None).is_err());
+        assert!(write_atomic(&path, b"x").is_err());
+    }
+
+    #[test]
+    fn preserves_existing_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("upscaler.json");
+        std::fs::write(&path, "old").unwrap();
+        std::fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        write_atomic(&path, b"new").unwrap();
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
     }
 
     #[test]

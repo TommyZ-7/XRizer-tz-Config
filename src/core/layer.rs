@@ -423,6 +423,28 @@ mod tests {
     }
 
     #[test]
+    fn snapshot_reports_not_installed_partial_and_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let data = dir.path().join("data");
+        let env = Env {
+            home: Some(dir.path().into()),
+            xdg_data_home: Some(data),
+            ..Default::default()
+        };
+        assert_eq!(snapshot(&env).status, LayerStatus::NotInstalled);
+        let paths = layer_paths(&env).unwrap();
+        std::fs::create_dir_all(&paths.manifest_dir).unwrap();
+        std::fs::write(
+            &paths.manifest,
+            r#"{"layer":{"name":"VK_LAYER_XRIZER_upscaler","library_path":"/missing/lib.so"}}"#,
+        )
+        .unwrap();
+        assert!(matches!(snapshot(&env).status, LayerStatus::Partial { .. }));
+        std::fs::write(&paths.manifest, "{not json").unwrap();
+        assert!(matches!(snapshot(&env).status, LayerStatus::Error { .. }));
+    }
+
+    #[test]
     fn installer_materializes_expected_tree() {
         let temp = materialize_installer().unwrap();
         assert!(temp.path().join("scripts/install-vulkan-layer.sh").exists());

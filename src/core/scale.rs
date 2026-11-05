@@ -9,7 +9,7 @@ use std::fs::OpenOptions;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 
-use crate::core::atomic::{BackupPolicy, can_write_into, write_atomic};
+use crate::core::atomic::{can_write_into, write_atomic};
 use crate::core::env::{Env, scale_candidates};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -193,6 +193,9 @@ pub fn snapshot_from_candidates(candidates: &[PathBuf], env: &Env) -> ScaleSnaps
                     break;
                 }
             }
+            if persistent_fallback.is_none() {
+                notices.push("ログアウト後は既定値 1.0 に戻ります".to_string());
+            }
         }
     } else {
         let persistent = entries.iter().find(|candidate| {
@@ -289,8 +292,7 @@ pub fn save(
     };
     let previous_value = snap.effective_value;
     let text = format_value(value);
-    let outcome = write_atomic(&target, text.as_bytes(), BackupPolicy::BeforeReplace)
-        .map_err(ScaleSaveError::Io)?;
+    let outcome = write_atomic(&target, text.as_bytes()).map_err(ScaleSaveError::Io)?;
 
     let written = std::fs::read_to_string(&target)
         .map_err(|error| ScaleSaveError::Io(format!("保存後の再読込に失敗しました: {error}")))?;
@@ -426,6 +428,22 @@ mod tests {
         std::fs::write(&path, "0.900").unwrap();
         let err = save(&env, 0.7, Some(loaded.fingerprint)).unwrap_err();
         assert!(matches!(err, ScaleSaveError::Conflict { .. }));
+    }
+
+    #[test]
+    fn volatile_without_persistent_fallback_warns_default() {
+        let dir = tempfile::tempdir().unwrap();
+        let runtime = dir.path().join("run");
+        std::fs::create_dir_all(&runtime).unwrap();
+        std::fs::write(runtime.join("xrizer_scale"), "0.600").unwrap();
+        let snap = snapshot(&env_with(dir.path(), &runtime));
+        assert_eq!(snap.effective.unwrap(), runtime.join("xrizer_scale"));
+        assert!(snap.persistent_fallback.is_none());
+        assert!(
+            snap.notices
+                .iter()
+                .any(|notice| notice.contains("既定値 1.0"))
+        );
     }
 
     #[test]

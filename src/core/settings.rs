@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use crate::core::atomic::{BackupPolicy, WriteOutcome, write_atomic};
+use crate::core::atomic::{WriteOutcome, write_atomic};
 use crate::core::env::Env;
 use crate::core::launch::LaunchForm;
 
@@ -20,6 +20,13 @@ pub struct AppSettings {
     pub active_tab: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct SettingsLoad {
+    pub settings: AppSettings,
+    pub warning: Option<String>,
+    pub broken: bool,
+}
+
 pub fn path(env: &Env) -> PathBuf {
     if let Some(dir) = &env.xdg_config_home {
         return dir.join("xrizer-tz-config/settings.json");
@@ -30,29 +37,37 @@ pub fn path(env: &Env) -> PathBuf {
     PathBuf::from("/tmp/xrizer-tz-config/settings.json")
 }
 
-pub fn load(env: &Env) -> (AppSettings, Option<String>) {
+pub fn load(env: &Env) -> SettingsLoad {
     let path = path(env);
     match std::fs::read_to_string(&path) {
         Ok(text) => match serde_json::from_str::<AppSettings>(&text) {
-            Ok(settings) => (settings, None),
-            Err(error) => (
-                AppSettings::default(),
-                Some(format!(
+            Ok(settings) => SettingsLoad {
+                settings,
+                warning: None,
+                broken: false,
+            },
+            Err(error) => SettingsLoad {
+                settings: AppSettings::default(),
+                warning: Some(format!(
                     "GUI 設定 {} を読めないため既定値を使います: {error}",
                     path.display()
                 )),
-            ),
+                broken: true,
+            },
         },
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            (AppSettings::default(), None)
-        }
-        Err(error) => (
-            AppSettings::default(),
-            Some(format!(
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => SettingsLoad {
+            settings: AppSettings::default(),
+            warning: None,
+            broken: false,
+        },
+        Err(error) => SettingsLoad {
+            settings: AppSettings::default(),
+            warning: Some(format!(
                 "GUI 設定 {} を読めないため既定値を使います: {error}",
                 path.display()
             )),
-        ),
+            broken: true,
+        },
     }
 }
 
@@ -61,7 +76,7 @@ pub fn save(env: &Env, settings: &AppSettings) -> Result<WriteOutcome, String> {
     let mut text = serde_json::to_string_pretty(settings)
         .map_err(|error| format!("GUI 設定を JSON に変換できません: {error}"))?;
     text.push('\n');
-    write_atomic(&path, text.as_bytes(), BackupPolicy::None)
+    write_atomic(&path, text.as_bytes())
 }
 
 #[cfg(test)]
@@ -100,9 +115,28 @@ mod tests {
             active_tab: Some("scale".into()),
         };
         save(&env, &settings).unwrap();
-        let (loaded, warning) = load(&env);
-        assert!(warning.is_none());
-        assert_eq!(loaded, settings);
+        let loaded = load(&env);
+        assert!(loaded.warning.is_none());
+        assert!(!loaded.broken);
+        assert_eq!(loaded.settings, settings);
+    }
+
+    #[test]
+    fn saving_over_a_broken_settings_file_keeps_a_backup() {
+        let dir = tempfile::tempdir().unwrap();
+        let env = Env {
+            home: Some(dir.path().into()),
+            ..Default::default()
+        };
+        let p = path(&env);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(&p, "{not json").unwrap();
+        let loaded = load(&env);
+        assert!(loaded.warning.is_some());
+        assert!(loaded.broken);
+        save(&env, &loaded.settings).unwrap();
+        let backup = p.with_file_name("settings.json.bak");
+        assert_eq!(std::fs::read_to_string(backup).unwrap(), "{not json");
     }
 
     #[test]
@@ -115,8 +149,9 @@ mod tests {
         let p = path(&env);
         std::fs::create_dir_all(p.parent().unwrap()).unwrap();
         std::fs::write(&p, "{not json").unwrap();
-        let (loaded, warning) = load(&env);
-        assert!(warning.is_some());
-        assert_eq!(loaded, AppSettings::default());
+        let loaded = load(&env);
+        assert!(loaded.warning.is_some());
+        assert!(loaded.broken);
+        assert_eq!(loaded.settings, AppSettings::default());
     }
 }

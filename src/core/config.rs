@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use crate::core::atomic::{BackupPolicy, WriteOutcome, can_write_into, write_atomic};
+use crate::core::atomic::{WriteOutcome, can_write_into, write_atomic};
 use crate::core::env::{Env, config_candidates};
 
 pub const KNOWN_KEYS: [&str; 14] = [
@@ -379,7 +379,7 @@ pub fn save(
     let text = build_json(raw, value)?;
     serde_json::from_str::<UpscalerConfig>(&text)
         .map_err(|error| format!("生成した設定 JSON を検証できません: {error}"))?;
-    write_atomic(path, text.as_bytes(), BackupPolicy::BeforeReplace)
+    write_atomic(path, text.as_bytes())
 }
 
 /// Content fingerprint used for external-change detection.
@@ -432,6 +432,18 @@ mod tests {
         assert_eq!(keys[0], "enabled");
         assert_eq!(keys[keys.len() - 1], "another_key");
         serde_json::from_str::<UpscalerConfig>(&text).unwrap();
+    }
+
+    #[test]
+    fn writes_short_f32_values() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("upscaler.json");
+        std::fs::write(&path, valid_json()).unwrap();
+        let mut loaded = load(&path).unwrap();
+        loaded.value.radius = 0.8;
+        let text = build_json(&loaded.raw, &loaded.value).unwrap();
+        assert!(text.contains("\"radius\": 0.8"), "{text}");
+        assert!(text.contains("\"feather\": 0.1"), "{text}");
     }
 
     #[test]

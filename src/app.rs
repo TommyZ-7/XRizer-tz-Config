@@ -11,7 +11,7 @@ use crate::core::env::{self, Env};
 use crate::core::launch::LaunchOutput;
 use crate::core::layer::{self, InstallResult, LayerSnapshot, SoInfo};
 use crate::core::model::{self, ModelInfo, ModelInstallOutcome};
-use crate::core::scale::{self, ScaleSnapshot};
+use crate::core::scale::{self, EffectiveSource, ScaleSnapshot};
 use crate::core::settings::{self, AppSettings};
 use crate::ui;
 
@@ -77,6 +77,7 @@ pub struct Toast {
 #[derive(Debug, Clone)]
 pub enum ConfirmAction {
     ReloadAll,
+    ReloadScale,
     InstallModel { source: PathBuf, target: PathBuf },
     RemoveLayer,
     OverwriteScale,
@@ -233,6 +234,7 @@ impl ConfigView {
             };
         let mut value = self.form.clone();
         value.model_path = normalized;
+        let (value, _) = config::sanitize(value);
         if !force {
             let current = config::file_fingerprint(&self.path);
             if current != self.fingerprint {
@@ -413,6 +415,7 @@ pub struct LayerView {
     pub error: Option<String>,
     pub installed_hash: Option<u64>,
     pub installed_hash_for: Option<(PathBuf, u64, Option<std::time::SystemTime>)>,
+    pub so_key: Option<(u64, Option<std::time::SystemTime>)>,
 }
 
 impl LayerView {
@@ -422,21 +425,18 @@ impl LayerView {
             .clone()
             .or_else(|| layer::auto_detect_so(env).map(|path| path.display().to_string()))
             .unwrap_or_default();
-        let so = if so_text.trim().is_empty() {
-            None
-        } else {
-            Some(layer::inspect_so(Path::new(&so_text)))
-        };
         let mut view = Self {
             so_text,
-            so,
+            so: None,
             snapshot: layer::snapshot(env),
             busy: None,
             log: String::new(),
             error: None,
             installed_hash: None,
             installed_hash_for: None,
+            so_key: None,
         };
+        view.refresh_so();
         view.update_installed_hash();
         view
     }
@@ -475,11 +475,32 @@ impl LayerView {
 
     pub fn refresh_so(&mut self) {
         let text = self.so_text.trim();
-        self.so = if text.is_empty() {
-            None
-        } else {
-            Some(layer::inspect_so(Path::new(text)))
-        };
+        if text.is_empty() {
+            self.so = None;
+            self.so_key = None;
+            return;
+        }
+        let path = Path::new(text);
+        self.so_key = std::fs::metadata(path)
+            .ok()
+            .map(|metadata| (metadata.len(), metadata.modified().ok()));
+        self.so = Some(layer::inspect_so(path));
+    }
+
+    pub fn refresh_so_if_changed(&mut self) {
+        let text = self.so_text.trim();
+        if text.is_empty() {
+            self.so = None;
+            self.so_key = None;
+            return;
+        }
+        let path = Path::new(text);
+        let key = std::fs::metadata(path)
+            .ok()
+            .map(|metadata| (metadata.len(), metadata.modified().ok()));
+        if key != self.so_key {
+            self.refresh_so();
+        }
     }
 }
 
@@ -503,19 +524,28 @@ pub struct App {
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         ui::theme::apply(&cc.egui_ctx);
-        let env = Env::from_process();
-        let (mut settings, mut settings_warning) = settings::load(&env);
+        Self::from_env(Env::from_process())
+    }
+
+    pub(crate) fn from_env(env: Env) -> Self {
+        let loaded = settings::load(&env);
+        let mut settings = loaded.settings;
+        let settings_broken = loaded.broken;
+        let mut settings_warning = loaded.warning;
+        let startup_warning = settings_warning.clone();
         let mut settings_dirty = false;
 
         if settings.launch.capture_dir.is_empty()
             && let Some(home) = &env.home
         {
             settings.launch.capture_dir = home.join("xrizer-captures").display().to_string();
-            settings_dirty = true;
+            settings_dirty = !settings_broken;
         }
         let notices = settings.launch.sanitize();
         if !notices.is_empty() {
-            settings_dirty = true;
+            if !settings_broken {
+                settings_dirty = true;
+            }
             let joined = notices.join(" / ");
             settings_warning = Some(match settings_warning {
                 Some(warning) => format!("{warning} / {joined}"),
@@ -529,7 +559,7 @@ impl App {
         let model = ModelView::new(&env);
         let layer = LayerView::new(&env, &settings);
 
-        Self {
+        let mut app = Self {
             env,
             active_tab,
             config,
@@ -549,7 +579,17 @@ impl App {
             confirm: None,
             last_poll: Instant::now(),
             last_settings_save: Instant::now(),
+        };
+        if let Some(warning) = startup_warning {
+            app.toast = Some(Toast {
+                text: format!(
+                    "GUI 設定を読めませんでした。既定値で起動し、保存時に settings.json.bak を作成します: {warning}"
+                ),
+                kind: ToastKind::Error,
+                until: Instant::now() + Duration::from_secs(10),
+            });
         }
+        app
     }
 
     pub fn start_layer_install(&mut self, so_path: PathBuf) {
@@ -586,22 +626,33 @@ impl App {
     }
 
     pub fn save_all(&mut self) {
-        let mut saved = Vec::new();
-        let mut errors = Vec::new();
+        let config_broken = matches!(&self.config.state, ConfigState::Broken { .. });
+        let config_needs = !config_broken
+            && (self.config.dirty
+                || matches!(&self.config.state, ConfigState::Missing)
+                || !self.config.notices.is_empty());
+        let scale_needs = self.scale.dirty
+            || matches!(&self.scale.snapshot.source, Some(EffectiveSource::NewFile));
 
-        if matches!(&self.config.state, ConfigState::Broken { .. }) {
-            errors.push("設定ファイルが壊れているため保存できません".to_string());
-        } else if self.config.dirty {
+        let mut summary = Vec::new();
+        let mut had_error = false;
+        let mut saved_any = false;
+
+        if config_broken {
+            summary.push("設定: エラー（読込エラー）".to_string());
+            had_error = true;
+        } else if config_needs {
             if self.config.save(&self.env, false) {
-                saved.push("設定".to_string());
+                summary.push("設定: 保存".to_string());
+                saved_any = true;
             } else {
-                errors.push(format!(
-                    "設定: {}",
-                    self.config
-                        .error
-                        .clone()
-                        .unwrap_or_else(|| "保存できませんでした".to_string())
-                ));
+                let error = self
+                    .config
+                    .error
+                    .clone()
+                    .unwrap_or_else(|| "保存できませんでした".to_string());
+                summary.push(format!("設定: エラー（{error}）"));
+                had_error = true;
                 if self.config.conflict {
                     self.confirm = Some(ConfirmDialog {
                         title: "設定ファイルを上書き".to_string(),
@@ -612,19 +663,22 @@ impl App {
                     });
                 }
             }
+        } else {
+            summary.push("設定: 変更なし".to_string());
         }
 
-        if self.scale.dirty {
+        if scale_needs {
             if self.scale.save(&self.env, false) {
-                saved.push("スケール".to_string());
+                summary.push("スケール: 保存".to_string());
+                saved_any = true;
             } else {
-                errors.push(format!(
-                    "スケール: {}",
-                    self.scale
-                        .error
-                        .clone()
-                        .unwrap_or_else(|| "保存できませんでした".to_string())
-                ));
+                let error = self
+                    .scale
+                    .error
+                    .clone()
+                    .unwrap_or_else(|| "保存できませんでした".to_string());
+                summary.push(format!("スケール: エラー（{error}）"));
+                had_error = true;
                 if self.scale.conflict {
                     self.confirm = Some(ConfirmDialog {
                         title: "スケールファイルを上書き".to_string(),
@@ -635,17 +689,17 @@ impl App {
                     });
                 }
             }
+        } else {
+            summary.push("スケール: 変更なし".to_string());
         }
 
-        if !errors.is_empty() {
-            self.show_toast(ToastKind::Error, errors.join(" / "));
-        } else if saved.is_empty() {
-            self.show_toast(ToastKind::Info, "変更はありません");
+        let text = summary.join(" / ");
+        if had_error {
+            self.show_toast(ToastKind::Error, text);
+        } else if saved_any {
+            self.show_toast(ToastKind::Success, text);
         } else {
-            self.show_toast(
-                ToastKind::Success,
-                format!("保存しました: {}", saved.join(" / ")),
-            );
+            self.show_toast(ToastKind::Info, "変更はありません");
         }
     }
 
@@ -698,6 +752,7 @@ impl App {
         }
 
         self.layer.refresh(&self.env);
+        self.layer.refresh_so_if_changed();
         let target = self.model.target.clone();
         self.model.refresh_current(&target);
     }
@@ -751,6 +806,7 @@ impl App {
                         self.layer.log = format!("{}\n{}", result.stdout, result.stderr)
                             .trim()
                             .to_string();
+                        self.layer.refresh_so();
                         self.layer.update_installed_hash();
                         self.show_toast(
                             ToastKind::Success,
@@ -792,6 +848,7 @@ impl App {
     pub fn apply_confirm(&mut self, action: ConfirmAction) {
         match action {
             ConfirmAction::ReloadAll => self.reload_all_now(),
+            ConfirmAction::ReloadScale => self.scale.reload(&self.env),
             ConfirmAction::InstallModel { source, target } => {
                 self.start_model_install(source, target);
             }
@@ -1044,7 +1101,9 @@ impl eframe::App for App {
     }
 
     fn on_exit(&mut self, _gl: Option<&glow::Context>) {
-        let _ = settings::save(&self.env, &self.settings);
+        if self.settings_dirty {
+            let _ = settings::save(&self.env, &self.settings);
+        }
     }
 }
 
@@ -1075,6 +1134,107 @@ mod tests {
         let path = config_path(env);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(path, text).unwrap();
+    }
+
+    #[test]
+    fn broken_gui_settings_are_not_auto_saved_at_startup() {
+        let (_dir, env) = temp_env();
+        let settings_path = crate::core::settings::path(&env);
+        std::fs::create_dir_all(settings_path.parent().unwrap()).unwrap();
+        std::fs::write(&settings_path, "{broken").unwrap();
+        let app = App::from_env(env.clone());
+        assert!(!app.settings_dirty);
+        assert!(app.settings_warning.is_some());
+        assert_eq!(std::fs::read_to_string(&settings_path).unwrap(), "{broken");
+    }
+
+    #[test]
+    fn first_save_creates_missing_config_and_scale() {
+        let (_dir, env) = temp_env();
+        let mut app = App::from_env(env.clone());
+        assert!(matches!(app.config.state, ConfigState::Missing));
+        assert!(matches!(
+            app.scale.snapshot.source,
+            Some(EffectiveSource::NewFile)
+        ));
+        app.save_all();
+        assert!(config_path(&env).exists());
+        let scale_path = env.home.as_ref().unwrap().join(".config/xrizer_scale");
+        assert!(scale_path.exists());
+        assert_eq!(std::fs::read_to_string(scale_path).unwrap(), "1.000");
+        assert_eq!(app.toast.as_ref().unwrap().kind, ToastKind::Success);
+    }
+
+    #[test]
+    fn broken_config_does_not_hide_successful_scale_save() {
+        let (_dir, env) = temp_env();
+        write_config(&env, "{broken");
+        let runtime = env.xdg_runtime_dir.as_ref().unwrap();
+        std::fs::create_dir_all(runtime).unwrap();
+        let scale_path = runtime.join("xrizer_scale");
+        std::fs::write(&scale_path, "0.500").unwrap();
+        let mut app = App::from_env(env.clone());
+        assert!(matches!(app.config.state, ConfigState::Broken { .. }));
+        app.scale.form_value = 0.7;
+        app.scale.recompute_dirty();
+        app.save_all();
+        assert_eq!(std::fs::read_to_string(&scale_path).unwrap(), "0.700");
+        let toast = app.toast.as_ref().unwrap();
+        assert_eq!(toast.kind, ToastKind::Error);
+        assert!(toast.text.contains("スケール: 保存"));
+        assert!(toast.text.contains("設定: エラー"));
+    }
+
+    #[test]
+    fn save_normalizes_reversed_scale_bounds() {
+        let (_dir, env) = temp_env();
+        write_config(&env, r#"{"radius": 0.35}"#);
+        let mut view = ConfigView::new(&env);
+        view.form.min_scale = 3.0;
+        view.form.max_scale = 0.5;
+        view.recompute_dirty();
+        assert!(view.save(&env, false));
+        let text = std::fs::read_to_string(config_path(&env)).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(value["min_scale"].as_f64().unwrap(), 0.5);
+        assert_eq!(value["max_scale"].as_f64().unwrap(), 3.0);
+    }
+
+    #[test]
+    fn poll_files_reloads_config_when_clean_and_flags_conflict_when_dirty() {
+        let (_dir, env) = temp_env();
+        write_config(&env, r#"{"radius": 0.35}"#);
+        let mut app = App::from_env(env.clone());
+        assert!(matches!(app.config.state, ConfigState::Loaded));
+        std::fs::write(config_path(&env), r#"{"radius": 0.5}"#).unwrap();
+        app.poll_files();
+        assert_eq!(app.config.form.radius, 0.5);
+        app.config.form.radius = 0.8;
+        app.config.recompute_dirty();
+        std::fs::write(config_path(&env), r#"{"radius": 0.6}"#).unwrap();
+        app.poll_files();
+        assert!(app.config.conflict);
+        assert_eq!(app.config.form.radius, 0.8);
+    }
+
+    #[test]
+    fn poll_files_reloads_scale_when_clean_and_flags_conflict_when_dirty() {
+        let (_dir, env) = temp_env();
+        let runtime = env.xdg_runtime_dir.as_ref().unwrap();
+        std::fs::create_dir_all(runtime).unwrap();
+        let path = runtime.join("xrizer_scale");
+        std::fs::write(&path, "0.500").unwrap();
+        let mut app = App::from_env(env.clone());
+        assert_eq!(app.scale.form_value, 0.5);
+        std::fs::write(&path, "0.700").unwrap();
+        app.poll_files();
+        assert_eq!(app.scale.form_value, 0.7);
+        app.scale.form_value = 0.9;
+        app.scale.recompute_dirty();
+        std::fs::write(&path, "0.800").unwrap();
+        app.poll_files();
+        assert!(app.scale.conflict);
+        assert_eq!(app.scale.form_value, 0.9);
     }
 
     #[test]
@@ -1109,6 +1269,25 @@ mod tests {
     }
 
     #[test]
+    fn layer_view_refreshes_selected_so_when_file_changes() {
+        let (_dir, env) = temp_env();
+        let home = env.home.as_ref().unwrap();
+        std::fs::create_dir_all(home).unwrap();
+        let so = home.join("libxrizer_upscaler_layer.so");
+        std::fs::write(&so, b"\x7fELF\x01\x01\x01\x00dummy").unwrap();
+        let settings = AppSettings {
+            layer_so_path: Some(so.display().to_string()),
+            ..Default::default()
+        };
+        let mut view = LayerView::new(&env, &settings);
+        let first = view.so.as_ref().unwrap().as_ref().unwrap().hash;
+        std::fs::write(&so, b"\x7fELF\x01\x01\x01\x00different").unwrap();
+        view.refresh_so_if_changed();
+        let second = view.so.as_ref().unwrap().as_ref().unwrap().hash;
+        assert_ne!(first, second);
+    }
+
+    #[test]
     fn layer_view_caches_installed_hash() {
         let (_dir, env) = temp_env();
         let home = env.home.as_ref().unwrap();
@@ -1122,6 +1301,20 @@ mod tests {
         ));
         let view = LayerView::new(&env, &AppSettings::default());
         assert_eq!(view.installed_hash, layer::hash_file(&so).ok());
+    }
+
+    #[test]
+    fn reload_scale_confirmation_discards_edits() {
+        let (_dir, env) = temp_env();
+        let runtime = env.xdg_runtime_dir.as_ref().unwrap();
+        std::fs::create_dir_all(runtime).unwrap();
+        std::fs::write(runtime.join("xrizer_scale"), "0.500").unwrap();
+        let mut app = App::from_env(env.clone());
+        app.scale.form_value = 0.9;
+        app.scale.recompute_dirty();
+        app.apply_confirm(ConfirmAction::ReloadScale);
+        assert_eq!(app.scale.form_value, 0.5);
+        assert!(!app.scale.dirty);
     }
 
     #[test]

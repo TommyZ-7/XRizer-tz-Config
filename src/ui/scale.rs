@@ -2,7 +2,7 @@
 
 use eframe::egui;
 
-use crate::app::{App, ToastKind};
+use crate::app::{App, ConfirmAction, ConfirmDialog, ToastKind};
 use crate::core::scale::{self, EffectiveSource, ScaleState};
 use crate::ui::widgets;
 
@@ -160,6 +160,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     ui.add_space(12.0);
     ui.separator();
     let mut save_clicked = false;
+    let mut reload_clicked = false;
     ui.horizontal(|ui| {
         if ui
             .add_enabled(
@@ -171,7 +172,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             save_clicked = true;
         }
         if ui.button("再読込").clicked() {
-            reload = true;
+            reload_clicked = true;
         }
     });
 
@@ -194,6 +195,18 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     }
     if reload {
         app.scale.reload(&app.env);
+    }
+    if reload_clicked {
+        if app.scale.dirty {
+            app.confirm = Some(ConfirmDialog {
+                title: "スケールを再読込".to_string(),
+                body: "未保存の変更を破棄して再読込しますか？".to_string(),
+                confirm_label: "再読込".to_string(),
+                action: ConfirmAction::ReloadScale,
+            });
+        } else {
+            app.scale.reload(&app.env);
+        }
     }
     if save_clicked {
         app.save_all();

@@ -8,6 +8,7 @@ use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
+use crate::core::atomic;
 use crate::core::env::Env;
 
 pub const FEATURE_COUNT: u32 = 28;
@@ -235,8 +236,9 @@ pub fn validate_header(header_and_table: &[u8], file_size: u64) -> Result<ModelI
 /// Copy a validated model into place. The old model is kept as `<name>.bak`.
 pub fn install(source: &Path, target: &Path) -> Result<ModelInstallOutcome, String> {
     inspect(source)?;
+    let target = atomic::resolve_regular_target(target)?;
     let source_canon = fs::canonicalize(source).ok();
-    let target_canon = fs::canonicalize(target).ok();
+    let target_canon = fs::canonicalize(&target).ok();
     if source == target
         || (source_canon.is_some() && source_canon.as_ref() == target_canon.as_ref())
     {
@@ -265,12 +267,22 @@ pub fn install(source: &Path, target: &Path) -> Result<ModelInstallOutcome, Stri
         .sync_all()
         .map_err(|error| format!("モデルを fsync できません: {error}"))?;
     inspect(temp.path())?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
+
+    let existing_permissions = fs::metadata(&target)
+        .ok()
+        .map(|metadata| metadata.permissions());
+    if let Some(permissions) = existing_permissions {
         temp.as_file()
-            .set_permissions(fs::Permissions::from_mode(0o644))
+            .set_permissions(permissions)
             .map_err(|error| format!("モデルのパーミッションを設定できません: {error}"))?;
+    } else {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            temp.as_file()
+                .set_permissions(fs::Permissions::from_mode(0o644))
+                .map_err(|error| format!("モデルのパーミッションを設定できません: {error}"))?;
+        }
     }
 
     let backup = if target.exists() {
@@ -278,7 +290,7 @@ pub fn install(source: &Path, target: &Path) -> Result<ModelInstallOutcome, Stri
             .file_name()
             .ok_or_else(|| format!("{} にファイル名がありません", target.display()))?;
         let backup_path = target.with_file_name(format!("{}.bak", name.to_string_lossy()));
-        fs::copy(target, &backup_path)
+        fs::copy(&target, &backup_path)
             .map_err(|error| format!("既存モデルをバックアップできません: {error}"))?;
         File::open(&backup_path)
             .and_then(|file| file.sync_all())
@@ -288,16 +300,13 @@ pub fn install(source: &Path, target: &Path) -> Result<ModelInstallOutcome, Stri
         None
     };
 
-    temp.persist(target)
+    temp.persist(&target)
         .map_err(|error| format!("{} を置き換えられません: {}", target.display(), error.error))?;
     if let Ok(dir) = File::open(parent) {
         let _ = dir.sync_all();
     }
 
-    Ok(ModelInstallOutcome {
-        target: target.to_path_buf(),
-        backup,
-    })
+    Ok(ModelInstallOutcome { target, backup })
 }
 
 fn read_u16(bytes: &[u8], offset: usize) -> Result<u16, String> {
@@ -407,6 +416,43 @@ mod tests {
         let second = install(&source, &target).unwrap();
         assert!(second.backup.unwrap().exists());
         assert!(install(&target, &target).is_err());
+    }
+
+    #[test]
+    fn install_preserves_symlink_and_target_permissions() {
+        use std::os::unix::fs::{PermissionsExt, symlink};
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("source.xru");
+        let real = dir.path().join("real.xru");
+        let link = dir.path().join("model.xru");
+        let bytes = build_xru(0, 16, 0, &[(28, 16), (16, 1)]);
+        std::fs::write(&source, &bytes).unwrap();
+        std::fs::write(&real, &bytes).unwrap();
+        std::fs::set_permissions(&real, std::fs::Permissions::from_mode(0o600)).unwrap();
+        symlink(&real, &link).unwrap();
+        install(&source, &link).unwrap();
+        assert!(
+            std::fs::symlink_metadata(&link)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        assert_eq!(
+            std::fs::metadata(&real).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert_eq!(std::fs::read(&real).unwrap(), bytes);
+    }
+
+    #[test]
+    fn install_refuses_a_directory_target() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("source.xru");
+        let target = dir.path().join("target");
+        let bytes = build_xru(0, 16, 0, &[(28, 16), (16, 1)]);
+        std::fs::write(&source, &bytes).unwrap();
+        std::fs::create_dir(&target).unwrap();
+        assert!(install(&source, &target).is_err());
     }
 
     #[test]
