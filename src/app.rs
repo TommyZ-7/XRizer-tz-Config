@@ -521,9 +521,39 @@ pub struct App {
     pub last_settings_save: Instant,
 }
 
+fn load_bundled_font(ctx: &egui::Context) {
+    let Some(path) = std::env::var_os("XRIZER_TZ_CONFIG_FONT") else {
+        return;
+    };
+    let bytes = match std::fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            eprintln!(
+                "warning: could not read bundled font {}: {error}",
+                std::path::Path::new(&path).display()
+            );
+            return;
+        }
+    };
+    let mut fonts = egui::FontDefinitions::default();
+    fonts.font_data.insert(
+        "xrizer_bundled".to_string(),
+        std::sync::Arc::new(egui::FontData::from_owned(bytes)),
+    );
+    for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
+        fonts
+            .families
+            .entry(family)
+            .or_default()
+            .push("xrizer_bundled".to_string());
+    }
+    ctx.set_fonts(fonts);
+}
+
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         ui::theme::apply(&cc.egui_ctx);
+        load_bundled_font(&cc.egui_ctx);
         Self::from_env(Env::from_process())
     }
 

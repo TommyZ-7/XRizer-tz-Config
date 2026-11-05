@@ -78,7 +78,7 @@ chmod +x XRizer-tz-Config-0.1.2-x86_64.AppImage
 - `linuxdeploy` / `appimagetool` はスクリプトが pinned version を取得します。
 - Noto Sans CJK JP を同梱しているため、日本語フォントがない環境でも UI を表示できます（SIL OFL 1.1、`assets/fonts/OFL.txt`）。
 - AppImage のフォント構成は同梱 Noto CJK のみを使い、ホストの fontconfig 設定には依存しません。ホストの古い / 新しい fontconfig との互換性問題を避けるためです。
-- fontconfig / freetype / expat / xkbcommon / X11 / xcb / wayland-client は AppImage に同梱します。OpenGL / EGL / Vulkan ドライバと glibc はホストのものを使うため、通常の Linux デスクトップ環境が必要です。
+- xkbcommon / X11 / xcb / wayland-client は AppImage に同梱します。同梱 Noto CJK は egui に直接読み込むため、ホストの fontconfig / freetype は使いません。OpenGL / EGL / Vulkan ドライバと glibc はホストのものを使うため、通常の Linux デスクトップ環境が必要です。
 - AppImage type 2 の通常起動には FUSE2 が必要です。
   - Debian / Ubuntu: `sudo apt install libfuse2`
   - Arch / CachyOS: `sudo pacman -S fuse2`

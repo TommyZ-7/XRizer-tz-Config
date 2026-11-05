@@ -55,7 +55,7 @@ jobs:
           set -euo pipefail
           APP=$(ls dist/*.AppImage)
           "$APP" --appimage-extract >/dev/null
-          for lib in libfontconfig.so.1 libxkbcommon.so.0 libX11.so.6 libwayland-client.so.0; do
+          for lib in libxkbcommon.so.0 libX11.so.6 libwayland-client.so.0; do
             find squashfs-root/usr/lib -name "$lib" | grep -q . || {
               echo "missing bundled library: $lib"
               exit 1

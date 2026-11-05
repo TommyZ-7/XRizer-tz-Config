@@ -132,9 +132,6 @@ log "using font: $FONT"
 
 BUNDLE_LIBS=()
 for library in \
-    libfontconfig.so.1 \
-    libexpat.so.1 \
-    libfreetype.so.6 \
     libxkbcommon.so.0 \
     libxkbcommon-x11.so.0 \
     libX11.so.6 \
@@ -166,7 +163,6 @@ install -m644 "$ROOT/assets/appimage/xrizer-tz-config.png" "$APPDIR/usr/share/ic
 install -m644 "$FONT" "$APPDIR/usr/share/fonts/noto/$(basename "$FONT")"
 install -m644 "$ROOT/assets/fonts/OFL.txt" "$APPDIR/usr/share/doc/xrizer-tz-config/OFL.txt"
 install -m644 "$ROOT/LICENSE" "$APPDIR/usr/share/doc/xrizer-tz-config/LICENSE"
-install -m644 "$ROOT/assets/appimage/fonts.conf" "$APPDIR/fonts.conf"
 install -m755 "$ROOT/assets/appimage/AppRun" "$APPDIR/AppRun"
 
 log "deploying dependencies with linuxdeploy"
@@ -187,7 +183,6 @@ export NO_STRIP=1
 
 # linuxdeploy may replace AppRun; ensure our fontconfig wrapper is in place.
 install -m755 "$ROOT/assets/appimage/AppRun" "$APPDIR/AppRun"
-install -m644 "$ROOT/assets/appimage/fonts.conf" "$APPDIR/fonts.conf"
 
 log "generating AppImage"
 export VERSION

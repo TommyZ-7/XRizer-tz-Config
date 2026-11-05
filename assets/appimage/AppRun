@@ -3,6 +3,8 @@ HERE="$(dirname "$(readlink -f "$0")")"
 export APPDIR="$HERE"
 export PATH="$HERE/usr/bin:$PATH"
 export LD_LIBRARY_PATH="$HERE/usr/lib:$HERE/usr/lib/x86_64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-export FONTCONFIG_FILE="$HERE/fonts.conf"
-export FONTCONFIG_PATH="$HERE"
+FONT_FILE="$(find "$HERE/usr/share/fonts" -type f 2>/dev/null | head -n 1 || true)"
+if [ -n "$FONT_FILE" ]; then
+    export XRIZER_TZ_CONFIG_FONT="$FONT_FILE"
+fi
 exec "$HERE/usr/bin/xrizer-tz-config" "$@"

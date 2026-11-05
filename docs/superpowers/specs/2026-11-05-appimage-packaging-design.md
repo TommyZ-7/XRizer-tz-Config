@@ -15,7 +15,7 @@ XRizer-tz-Custom の設定 GUI を、ビルド済み Linux 環境へ配布しや
 2. **ライブラリ同梱**: `linuxdeploy` で非コアライブラリを AppDir に同梱する。glibc / libGL / libEGL / libdrm などのコア graphics ライブラリはホストに任せる。
 3. **アイコン**: 仮アイコンを生成して同梱する。後で差し替え可能にする。
 4. **配布**: `v*` タグ push で GitHub Release に AppImage を添付する。`workflow_dispatch` でも artifact を保存する。
-5. **日本語フォント**: Noto Sans CJK JP を AppImage に同梱する。システムに Noto CJK があればそれを使い、なければ pinned な Noto CJK release から取得する。SIL OFL 1.1 のライセンスを同梱する。
+5. **日本語フォント**: Noto Sans CJK JP を AppImage に同梱し、egui の `FontDefinitions` に直接読み込む。ホストの fontconfig / システムフォントには依存しない。SIL OFL 1.1 のライセンスを同梱する。
 
 ## 3. ゴール / 非ゴール
 
@@ -42,14 +42,14 @@ XRizer-tz-Custom の設定 GUI を、ビルド済み Linux 環境へ配布しや
 ### 採用: linuxdeploy + appimagetool
 
 - `cargo build --release --locked` でバイナリを生成。
-- AppDir にバイナリ、`.desktop`、512x512 アイコン、Noto CJK フォント、fontconfig、AppRun を配置。
+- AppDir にバイナリ、`.desktop`、512x512 アイコン、Noto CJK フォント、AppRun を配置。
 - `linuxdeploy --appdir ... --executable ... --desktop-file ... --icon-file ... --custom-apprun ...` で依存ライブラリを同梱。
 - `appimagetool` で AppImage を生成。
 - CI とローカルで同じスクリプトを使う。
 
 ### 却下した案
 
-- **最小 AppDir（バイナリのみ）**: 小さいが、libxkbcommon / Wayland / fontconfig などの不足で環境依存になる。ユーザーの「1 ファイルで動く」期待に合わない。
+- **最小 AppDir（バイナリのみ）**: 小さいが、libxkbcommon / X11 / Wayland などの不足で環境依存になる。ユーザーの「1 ファイルで動く」期待に合わない。
 - **Docker / appimage-builder**: 再現性は高いが、このリポジトリの CI とローカルに追加のコンテナ依存を持ち込む。linuxdeploy で十分。
 - **フォントを systems font に任せる**: 日本語 UI が tofu になる環境があるため、方針 5-B に反する。
 
@@ -58,7 +58,6 @@ XRizer-tz-Custom の設定 GUI を、ビルド済み Linux 環境へ配布しや
 ```
 assets/appimage/
 ├── AppRun
-├── fonts.conf
 ├── io.github.tommyz7.XRizerTzConfig.desktop
 ├── xrizer-tz-config.svg          # 仮アイコンの原本
 └── xrizer-tz-config.png          # 512x512、AppDir 用
@@ -77,7 +76,6 @@ scripts/
   - `usr/share/applications/io.github.tommyz7.XRizerTzConfig.desktop`
   - `usr/share/icons/hicolor/512x512/apps/io.github.tommyz7.XRizerTzConfig.png`
   - `usr/share/fonts/noto/NotoSansCJK-Regular.ttc`（または JP OTF）
-  - `fonts.conf`
   - `AppRun`
 
 ## 6. AppRun とフォント
@@ -87,23 +85,14 @@ scripts/
 - `APPDIR` を自身のディレクトリに設定
 - `PATH` に `usr/bin`
 - `LD_LIBRARY_PATH` に `usr/lib` と `usr/lib/x86_64-linux-gnu`
-- `FONTCONFIG_FILE=$APPDIR/fonts.conf`
-- `FONTCONFIG_PATH=$APPDIR`
+- AppDir 内の Noto CJK フォントを探し、`XRIZER_TZ_CONFIG_FONT` に設定
 - `exec usr/bin/xrizer-tz-config "$@"`
 
-`fonts.conf`:
+アプリ側:
 
-```xml
-<?xml version="1.0"?>
-<!DOCTYPE fontconfig SYSTEM "fonts.dtd">
-<fontconfig>
-  <dir prefix="relative">usr/share/fonts</dir>
-</fontconfig>
-```
-
-- `prefix="relative"` は設定ファイルのディレクトリ基準。`$APPDIR/fonts.conf` から `$APPDIR/usr/share/fonts` を指す。
-- ホストの fontconfig 設定は include しない。Ubuntu 22.04 の同梱 libfontconfig と新しいホスト設定の互換性問題を避け、同梱 Noto CJK だけで表示する。
-- `egui` の `system_fonts` 機能が fontconfig 経由で同梱フォントを拾うことを、起動後のスクリーンショットで確認する。
+- `main.rs` は `XRIZER_TZ_CONFIG_FONT` が存在する場合、`NativeOptions::system_font_fallback` を `false` にする。
+- `App::new` はそのフォントを `egui::FontDefinitions` に追加し、Proportional / Monospace のフォールバックにする。
+- これにより AppImage はホストの fontconfig / システムフォントに依存せず、同梱 Noto CJK だけで日本語を表示する。Ubuntu 22.04 の同梱 libfontconfig と新しいホスト設定の互換性問題も避けられる。
 
 ## 7. ビルドスクリプト
 
@@ -175,7 +164,7 @@ scripts/
 - **glibc 互換性**: CI は Ubuntu 22.04（glibc 2.35）基準。それより古い distro では動かない可能性がある。
 - **FUSE2**: AppImage type 2 は FUSE2 が必要。無い環境では `APPIMAGE_EXTRACT_AND_RUN=1` を使う。README に明記する。
 - **グラフィックス**: `linuxdeploy` が libGL / libEGL / libdrm を同梱するとホストと衝突する可能性がある。コア graphics ライブラリは除外し、テストで確認する。
-- **フォント**: fontconfig の `FONTCONFIG_FILE` 設定が効かない環境では日本語が tofu になる可能性がある。スクリーンショットで確認する。
+- **フォント**: 同梱 TTC の最初の face が日本語を含むことをスクリーンショットで確認する。別の face が必要になった場合は JP OTF に切り替える。
 - **ファイルダイアログ**: `rfd` は xdg-desktop-portal を使う。AppImage 外のシステムサービスに依存する。
 - **AppImage の自動更新 / 署名**: 初期スコープ外。
 - **CI のフォント取得**: `fonts-noto-cjk` の配置が Ubuntu 22.04 で想定と違う場合は、ビルドスクリプトの検索パスを追加する。
