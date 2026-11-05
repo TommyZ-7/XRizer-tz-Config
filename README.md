@@ -64,19 +64,26 @@ cargo build --release
 
 ```bash
 bash scripts/build-appimage.sh
-./dist/XRizer-tz-Config-0.1.0-x86_64.AppImage
+./dist/XRizer-tz-Config-0.1.1-x86_64.AppImage
 ```
 
-- Release 用は GitHub Actions の Ubuntu 22.04（glibc 2.35）でビルドします。x86_64 のみです。
+GitHub Release / Actions artifact からダウンロードした場合は、実行ビットが落ちているため次を実行してください。
+
+```bash
+chmod +x XRizer-tz-Config-0.1.1-x86_64.AppImage
+./XRizer-tz-Config-0.1.1-x86_64.AppImage
+```
+
+- Release 用は GitHub Actions の Ubuntu 22.04（glibc 2.35）でビルドします。x86_64 のみです。ローカルビルドはホストの glibc に依存するため、配布用は CI の成果物を使ってください。
 - `linuxdeploy` / `appimagetool` はスクリプトが pinned version を取得します。
 - Noto Sans CJK JP を同梱しているため、日本語フォントがない環境でも UI を表示できます（SIL OFL 1.1、`assets/fonts/OFL.txt`）。
-- X11 / Wayland / OpenGL ドライバはホストのものを使います。通常の Linux デスクトップ環境が必要です。
+- fontconfig / freetype / expat / xkbcommon / X11 / xcb / wayland-client は AppImage に同梱します。OpenGL / EGL / Vulkan ドライバと glibc はホストのものを使うため、通常の Linux デスクトップ環境が必要です。
 - AppImage type 2 の通常起動には FUSE2 が必要です。
   - Debian / Ubuntu: `sudo apt install libfuse2`
   - Arch / CachyOS: `sudo pacman -S fuse2`
-  - FUSE2 がない場合: `APPIMAGE_EXTRACT_AND_RUN=1 ./dist/XRizer-tz-Config-0.1.0-x86_64.AppImage`
+  - FUSE2 がない場合: `APPIMAGE_EXTRACT_AND_RUN=1 ./dist/XRizer-tz-Config-0.1.1-x86_64.AppImage`
 - `v*` タグを push すると GitHub Release に AppImage が添付されます。手動実行（`workflow_dispatch`）では artifact として保存されます。
-- リリース: https://github.com/TommyZ-7/XRizer-tz-Config/releases
+- リリース: https://github.com/TommyZ-7/XRizer-tz-Config/releases/tag/v0.1.1
 
 ![XRizer-tz Config AppImage](docs/images/appimage-window.png)
 
@@ -228,7 +235,7 @@ cargo build --release
 bash scripts/build-appimage.sh
 ```
 
-AppImage のローカルビルドには `patchelf`、`mksquashfs`、`curl`、`unzip` が必要です。FUSE2 がない環境ではビルドツールを `APPIMAGE_EXTRACT_AND_RUN=1` で実行するため、そのままビルドできます。
+AppImage のローカルビルドには `patchelf`、`mksquashfs`、`file`、`curl`、`unzip` が必要です。FUSE2 がない環境ではビルドツールを `APPIMAGE_EXTRACT_AND_RUN=1` で実行するため、そのままビルドできます。
 
 テストは実ユーザーの `$HOME` / `$XDG_*` を変更せず、一時ディレクトリと合成 `Env` を使います。レイヤー導入テストは一時 `XDG_DATA_HOME` に対して実際に同梱スクリプトを実行します。
 

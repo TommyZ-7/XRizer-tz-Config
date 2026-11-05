@@ -1,7 +1,7 @@
 # XRizer-tz Config AppImage 設計書
 
 - 日付: 2026-11-05
-- 状態: 承認待ち
+- 状態: 実装済み（2026-11-05）
 - 対象: `TommyZ-7/XRizer-tz-Config`
 - ライセンス: GPL-3.0-or-later（同梱フォントは SIL OFL 1.1）
 

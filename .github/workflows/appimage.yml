@@ -14,6 +14,8 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -30,6 +32,12 @@ jobs:
       - name: Test
         run: cargo test --locked
 
+      - name: Test font fallback
+        run: bash scripts/test-appimage-font.sh
+
+      - name: Test release helper
+        run: bash scripts/test-github-release.sh
+
       - name: Build AppImage
         env:
           IS_TAG: ${{ startsWith(github.ref, 'refs/tags/v') }}
@@ -42,36 +50,81 @@ jobs:
           fi
           bash scripts/build-appimage.sh
 
-      - name: Smoke test under Xvfb
+      - name: Verify AppImage contents
         run: |
           set -euo pipefail
           APP=$(ls dist/*.AppImage)
+          "$APP" --appimage-extract >/dev/null
+          for lib in libfontconfig.so.1 libxkbcommon.so.0 libX11.so.6 libwayland-client.so.0; do
+            find squashfs-root/usr/lib -name "$lib" | grep -q . || {
+              echo "missing bundled library: $lib"
+              exit 1
+            }
+          done
+          if find squashfs-root/usr/lib \( -name 'libGL.so*' -o -name 'libEGL.so*' -o -name 'libdrm.so*' \) | grep -q .; then
+            echo "core graphics library was bundled"
+            exit 1
+          fi
+          find squashfs-root/usr/share/doc/xrizer-tz-config -name LICENSE | grep -q .
+          find squashfs-root/usr/share/fonts -iname 'NotoSansCJK*' | grep -q .
+          rm -rf squashfs-root
+
+      - name: Smoke test under Xvfb
+        run: |
+          set -euo pipefail
+          APP=$(readlink -f dist/*.AppImage)
           Xvfb :99 -screen 0 1280x800x24 > xvfb.log 2>&1 &
           XVFB_PID=$!
           export DISPLAY=:99
           export LIBGL_ALWAYS_SOFTWARE=1
+          APP_PID=""
           cleanup() {
-            kill "$APP_PID" 2>/dev/null || true
+            if [ -n "$APP_PID" ]; then
+              kill "$APP_PID" 2>/dev/null || true
+              wait "$APP_PID" 2>/dev/null || true
+            fi
             kill "$XVFB_PID" 2>/dev/null || true
           }
           trap cleanup EXIT
           sleep 1
-          "$APP" > appimage.log 2>&1 &
+          cd /tmp
+
+          # Normal AppImage execution (FUSE2 is installed on the runner).
+          "$APP" > "$OLDPWD/appimage.log" 2>&1 &
           APP_PID=$!
           if ! timeout 30 xdotool search --sync --name "XRizer-tz Config"; then
-            echo "AppImage window did not appear"
-            cat appimage.log
-            cat xvfb.log
+            echo "normal AppImage window did not appear"
+            cat "$OLDPWD/appimage.log"
+            cat "$OLDPWD/xvfb.log"
             exit 1
           fi
           xdotool search --name "XRizer-tz Config" getwindowgeometry
-          import -window root appimage-smoke.png
+          import -window root "$OLDPWD/appimage-smoke.png"
+          kill "$APP_PID" 2>/dev/null || true
+          wait "$APP_PID" 2>/dev/null || true
+          APP_PID=""
+          sleep 1
+
+          # Extract-and-run execution for hosts without FUSE2.
+          APPIMAGE_EXTRACT_AND_RUN=1 "$APP" > "$OLDPWD/appimage-extract.log" 2>&1 &
+          APP_PID=$!
+          if ! timeout 30 xdotool search --sync --name "XRizer-tz Config"; then
+            echo "extract-and-run AppImage window did not appear"
+            cat "$OLDPWD/appimage-extract.log"
+            exit 1
+          fi
+          xdotool search --name "XRizer-tz Config" getwindowgeometry
+          kill "$APP_PID" 2>/dev/null || true
+          wait "$APP_PID" 2>/dev/null || true
+          APP_PID=""
 
       - name: Upload AppImage
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: xrizer-tz-config-appimage
           path: dist/*.AppImage
+          if-no-files-found: ignore
 
       - name: Upload smoke screenshot
         if: always()
@@ -88,6 +141,7 @@ jobs:
           name: appimage-failure-logs
           path: |
             appimage.log
+            appimage-extract.log
             xvfb.log
           if-no-files-found: ignore
 
@@ -98,10 +152,4 @@ jobs:
         run: |
           set -euo pipefail
           APP=$(ls dist/*.AppImage)
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" "$APP" --clobber
-          else
-            gh release create "$GITHUB_REF_NAME" "$APP" \
-              --title "XRizer-tz Config ${GITHUB_REF_NAME#v}" \
-              --generate-notes
-          fi
+          bash scripts/github-release.sh "$GITHUB_REF_NAME" "$APP"
