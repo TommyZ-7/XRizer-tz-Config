@@ -1,0 +1,107 @@
+name: AppImage
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  appimage:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+            libxkbcommon-dev libxkbcommon-x11-0 libwayland-dev libx11-dev \
+            libgl1-mesa-dev libegl1-mesa-dev libgl1-mesa-dri \
+            patchelf squashfs-tools libfuse2 file unzip \
+            fonts-noto-cjk xvfb xdotool imagemagick x11-utils
+
+      - name: Test
+        run: cargo test --locked
+
+      - name: Build AppImage
+        env:
+          IS_TAG: ${{ startsWith(github.ref, 'refs/tags/v') }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          if [ "$IS_TAG" = "true" ]; then
+            export VERSION="${TAG_NAME#v}"
+          else
+            export VERSION="dev-${GITHUB_SHA::7}"
+          fi
+          bash scripts/build-appimage.sh
+
+      - name: Smoke test under Xvfb
+        run: |
+          set -euo pipefail
+          APP=$(ls dist/*.AppImage)
+          Xvfb :99 -screen 0 1280x800x24 > xvfb.log 2>&1 &
+          XVFB_PID=$!
+          export DISPLAY=:99
+          export LIBGL_ALWAYS_SOFTWARE=1
+          cleanup() {
+            kill "$APP_PID" 2>/dev/null || true
+            kill "$XVFB_PID" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+          sleep 1
+          "$APP" > appimage.log 2>&1 &
+          APP_PID=$!
+          if ! timeout 30 xdotool search --sync --name "XRizer-tz Config"; then
+            echo "AppImage window did not appear"
+            cat appimage.log
+            cat xvfb.log
+            exit 1
+          fi
+          xdotool search --name "XRizer-tz Config" getwindowgeometry
+          import -window root appimage-smoke.png
+
+      - name: Upload AppImage
+        uses: actions/upload-artifact@v4
+        with:
+          name: xrizer-tz-config-appimage
+          path: dist/*.AppImage
+
+      - name: Upload smoke screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: appimage-smoke
+          path: appimage-smoke.png
+          if-no-files-found: ignore
+
+      - name: Upload failure logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: appimage-failure-logs
+          path: |
+            appimage.log
+            xvfb.log
+          if-no-files-found: ignore
+
+      - name: Release on tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          APP=$(ls dist/*.AppImage)
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "$APP" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "$APP" \
+              --title "XRizer-tz Config ${GITHUB_REF_NAME#v}" \
+              --generate-notes
+          fi
