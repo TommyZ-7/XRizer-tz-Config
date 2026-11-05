@@ -508,6 +508,17 @@ impl App {
         }
     }
 
+    pub fn start_model_install(&mut self, source: PathBuf, target: PathBuf) {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let result = model::install(&source, &target);
+            let _ = sender.send(result);
+        });
+        self.model.busy = Some(receiver);
+        self.model.error = None;
+        self.model.message = None;
+    }
+
     pub fn save_all(&mut self) {
         let mut saved = Vec::new();
         let mut errors = Vec::new();
@@ -575,11 +586,48 @@ impl App {
 
     pub fn poll_files(&mut self) {}
 
-    pub fn poll_background(&mut self) {}
+    pub fn poll_background(&mut self) {
+        let model_result = self
+            .model
+            .busy
+            .as_ref()
+            .map(std::sync::mpsc::Receiver::try_recv);
+        match model_result {
+            Some(Ok(result)) => {
+                self.model.busy = None;
+                match result {
+                    Ok(outcome) => {
+                        let target = self.model.target.clone();
+                        self.model.refresh_current(&target);
+                        self.model.message = Some(match outcome.backup {
+                            Some(backup) => {
+                                format!("配置しました（バックアップ: {}）", backup.display())
+                            }
+                            None => "配置しました".to_string(),
+                        });
+                        self.show_toast(ToastKind::Success, "モデルを配置しました");
+                    }
+                    Err(error) => {
+                        self.model.error = Some(error.clone());
+                        self.show_toast(ToastKind::Error, error);
+                    }
+                }
+            }
+            Some(Err(std::sync::mpsc::TryRecvError::Empty)) => {}
+            Some(Err(std::sync::mpsc::TryRecvError::Disconnected)) => {
+                self.model.busy = None;
+                self.model.error = Some("モデル配置スレッドが終了しました".to_string());
+            }
+            None => {}
+        }
+    }
 
     pub fn apply_confirm(&mut self, action: ConfirmAction) {
         match action {
             ConfirmAction::ReloadAll => self.reload_all_now(),
+            ConfirmAction::InstallModel { source, target } => {
+                self.start_model_install(source, target);
+            }
             _ => self.show_toast(ToastKind::Info, "この操作は次のタスクで実装されます"),
         }
     }
@@ -755,6 +803,9 @@ impl eframe::App for App {
             self.last_poll = Instant::now();
         }
         self.poll_background();
+        if self.model.busy.is_some() || self.layer.busy.is_some() {
+            ui.ctx().request_repaint_after(Duration::from_millis(100));
+        }
 
         let save = ui
             .ctx()
