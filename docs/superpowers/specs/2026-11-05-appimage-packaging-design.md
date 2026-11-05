@@ -1,7 +1,7 @@
 # XRizer-tz Config AppImage 設計書
 
 - 日付: 2026-11-05
-- 状態: 実装済み（2026-11-05）
+- 状態: 実装済み（2026-11-05、v0.1.2 でフォント構成を修正）
 - 対象: `TommyZ-7/XRizer-tz-Config`
 - ライセンス: GPL-3.0-or-later（同梱フォントは SIL OFL 1.1）
 
@@ -97,13 +97,12 @@ scripts/
 <?xml version="1.0"?>
 <!DOCTYPE fontconfig SYSTEM "fonts.dtd">
 <fontconfig>
-  <include ignore_missing="yes">/etc/fonts/fonts.conf</include>
   <dir prefix="relative">usr/share/fonts</dir>
 </fontconfig>
 ```
 
 - `prefix="relative"` は設定ファイルのディレクトリ基準。`$APPDIR/fonts.conf` から `$APPDIR/usr/share/fonts` を指す。
-- システムの fontconfig 設定も include し、システムフォントも使えるようにする。
+- ホストの fontconfig 設定は include しない。Ubuntu 22.04 の同梱 libfontconfig と新しいホスト設定の互換性問題を避け、同梱 Noto CJK だけで表示する。
 - `egui` の `system_fonts` 機能が fontconfig 経由で同梱フォントを拾うことを、起動後のスクリーンショットで確認する。
 
 ## 7. ビルドスクリプト

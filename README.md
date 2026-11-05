@@ -64,26 +64,27 @@ cargo build --release
 
 ```bash
 bash scripts/build-appimage.sh
-./dist/XRizer-tz-Config-0.1.1-x86_64.AppImage
+./dist/XRizer-tz-Config-0.1.2-x86_64.AppImage
 ```
 
 GitHub Release / Actions artifact からダウンロードした場合は、実行ビットが落ちているため次を実行してください。
 
 ```bash
-chmod +x XRizer-tz-Config-0.1.1-x86_64.AppImage
-./XRizer-tz-Config-0.1.1-x86_64.AppImage
+chmod +x XRizer-tz-Config-0.1.2-x86_64.AppImage
+./XRizer-tz-Config-0.1.2-x86_64.AppImage
 ```
 
 - Release 用は GitHub Actions の Ubuntu 22.04（glibc 2.35）でビルドします。x86_64 のみです。ローカルビルドはホストの glibc に依存するため、配布用は CI の成果物を使ってください。
 - `linuxdeploy` / `appimagetool` はスクリプトが pinned version を取得します。
 - Noto Sans CJK JP を同梱しているため、日本語フォントがない環境でも UI を表示できます（SIL OFL 1.1、`assets/fonts/OFL.txt`）。
+- AppImage のフォント構成は同梱 Noto CJK のみを使い、ホストの fontconfig 設定には依存しません。ホストの古い / 新しい fontconfig との互換性問題を避けるためです。
 - fontconfig / freetype / expat / xkbcommon / X11 / xcb / wayland-client は AppImage に同梱します。OpenGL / EGL / Vulkan ドライバと glibc はホストのものを使うため、通常の Linux デスクトップ環境が必要です。
 - AppImage type 2 の通常起動には FUSE2 が必要です。
   - Debian / Ubuntu: `sudo apt install libfuse2`
   - Arch / CachyOS: `sudo pacman -S fuse2`
-  - FUSE2 がない場合: `APPIMAGE_EXTRACT_AND_RUN=1 ./dist/XRizer-tz-Config-0.1.1-x86_64.AppImage`
+  - FUSE2 がない場合: `APPIMAGE_EXTRACT_AND_RUN=1 ./dist/XRizer-tz-Config-0.1.2-x86_64.AppImage`
 - `v*` タグを push すると GitHub Release に AppImage が添付されます。手動実行（`workflow_dispatch`）では artifact として保存されます。
-- リリース: https://github.com/TommyZ-7/XRizer-tz-Config/releases/tag/v0.1.1
+- リリース: https://github.com/TommyZ-7/XRizer-tz-Config/releases/tag/v0.1.2
 
 ![XRizer-tz Config AppImage](docs/images/appimage-window.png)
 
