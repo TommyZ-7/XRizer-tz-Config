@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=XRizer-tz Config
+Comment=Configuration GUI for the XRizer-tz-Custom spatial upscaler
+Exec=xrizer-tz-config
+Icon=io.github.tommyz7.XRizerTzConfig
+Categories=Settings;
+Terminal=false
+StartupWMClass=XRizer-tz Config
