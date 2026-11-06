@@ -91,6 +91,8 @@ fn vrs_default_fixture_pins_settings_v1_defaults() {
             "rate_mid",
             "rate_outer",
             "stereo_only",
+            "scene_format",
+            "flip_y",
             "compare",
             "compare_interval_ms",
             "debug_show_map",
@@ -107,6 +109,8 @@ fn vrs_default_fixture_pins_settings_v1_defaults() {
     assert_eq!(value["rate_mid"], serde_json::json!("2x2"));
     assert_eq!(value["rate_outer"], serde_json::json!("4x4"));
     assert_eq!(value["stereo_only"], serde_json::json!(true));
+    assert_eq!(value["scene_format"], serde_json::json!("rgba16f"));
+    assert_eq!(value["flip_y"], serde_json::json!(true));
     assert_eq!(value["compare"], serde_json::json!(false));
     assert_eq!(value["compare_interval_ms"], serde_json::json!(2000));
     assert_eq!(value["debug_show_map"], serde_json::json!(false));
@@ -123,4 +127,16 @@ fn vrs_rates_fixture_lists_the_seven_supported_rates() {
         labels,
         vec!["1x1", "1x2", "2x1", "2x2", "2x4", "4x2", "4x4"]
     );
+
+    let radv = value["radv_gfx11_supported"]
+        .as_array()
+        .expect("radv_gfx11_supported array");
+    let radv: Vec<&str> = radv.iter().map(|rate| rate.as_str().unwrap()).collect();
+    assert_eq!(radv, vec!["1x1", "1x2", "2x1", "2x2"]);
+
+    let msaa = value["msaa_coarse_sample_counts"]
+        .as_array()
+        .expect("msaa_coarse_sample_counts array");
+    let msaa: Vec<u64> = msaa.iter().map(|count| count.as_u64().unwrap()).collect();
+    assert_eq!(msaa, vec![1, 2, 4]);
 }

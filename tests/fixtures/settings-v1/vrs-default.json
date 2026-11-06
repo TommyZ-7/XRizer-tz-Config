@@ -10,6 +10,8 @@
   "rate_mid": "2x2",
   "rate_outer": "4x4",
   "stereo_only": true,
+  "scene_format": "rgba16f",
+  "flip_y": true,
   "compare": false,
   "compare_interval_ms": 2000,
   "debug_show_map": false

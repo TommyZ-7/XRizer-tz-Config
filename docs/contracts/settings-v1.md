@@ -149,7 +149,9 @@ All values are optional. The table is the authoritative default/range list.
 | `rate_inner` | string | `"1x1"` | see below | Inner shading rate. |
 | `rate_mid` | string | `"2x2"` | see below | Middle shading rate. |
 | `rate_outer` | string | `"4x4"` | see below | Outer shading rate. |
-| `stereo_only` | bool | `true` | — | Apply only to draws detected as stereo. |
+| `stereo_only` | bool | `true` | — | Apply only to draws detected as a stereo eye pass (2-layer array, or a 1-layer side-by-side pass with aspect >= 1.8). |
+| `scene_format` | string | `"rgba16f"` | `rgba16f` / `any` | Restrict VRS to the scene pass format. `rgba16f` is VRChat's Vulkan format 97 and avoids applying VRS to multiple same-sized passes. |
+| `flip_y` | bool | `true` | — | Invert the scene-pass Y coordinate when mapping the centre. VRChat's tested scene pass requires this. |
 | `compare` | bool | `false` | — | Toggle VRS application every `compare_interval_ms`. |
 | `compare_interval_ms` | integer | `2000` | `500..=10000` | A/B interval. |
 | `debug_show_map` | bool | `false` | — | Colour-code the rate regions. |
@@ -161,6 +163,33 @@ support a requested rate, round to the supported rate with the closest area;
 on a tie choose the lower rate. `1x1` is always supported by a conformant
 implementation.
 
+### 6.1 Platform constraints
+
+- RADV (Mesa main `radv_physical_device.c`) reports only `1x1`, `1x2`,
+  `2x1`, and `2x2` from `vkGetPhysicalDeviceFragmentShadingRatesKHR`.
+  `4x4`, `2x4`, and `4x2` do not exist on RADV; this includes the RX 7900 XTX
+  (GFX11). Therefore `rate_outer = "4x4"` is a valid configuration value but
+  its effective rate on Radeon is `2x2`.
+- The runtime must query `vkGetPhysicalDeviceFragmentShadingRatesKHR` at
+  startup or when the sample count changes, and clamp every requested rate to
+  the returned list. It must not assume the enum value is usable.
+- With MSAA, coarse-rate support is narrower: RADV reports `sampleCounts`
+  only for 1, 2, and 4 samples. A higher MSAA sample count can reduce or
+  remove the maximum coarse rate. The runtime clamps to a supported
+  `(rate, sampleCount)` pair and logs the effective rate.
+- The settings guide must recommend MSAA off (or a low sample count) when
+  maximum peripheral coarseness is the goal. This is a performance/quality
+  trade-off, not a requirement for correctness.
+
+### 6.2 Pass selection
+
+`stereo_only` is necessary but not sufficient for VRChat. The runtime must
+also require a color pass (not depth-only) and apply the `scene_format`
+filter. The reference implementation uses `VK_FORMAT_RGBA16F` (Vulkan format
+97) and a Y flip for the tested VRChat scene pass. `scene_format = "any"`
+disables the format filter for other applications but may reproduce the
+multiple-foveation-spot problem when several same-sized passes match.
+
 ## 7. DXVK VRS behavior
 
 - `enabled` toggles application of VRS. It does not create or destroy the
@@ -169,8 +198,14 @@ implementation.
   centres, offset, radii, feather, or rates.
 - `compare` toggles application of the existing map; it does not regenerate
   the map.
-- `stereo_only` applies only to draws identified as stereo. Non-stereo draws
-  use normal shading.
+- `stereo_only` applies only to draws identified as stereo: a 2-layer array
+  pass, or a 1-layer side-by-side pass with `width * 10 >= height * 18`.
+  Non-stereo draws use normal shading.
+- `scene_format = "rgba16f"` restricts VRS to the RGBA16F scene pass. VRChat
+  has several same-sized passes; without this filter the foveation region can
+  appear more than once.
+- `flip_y` maps the centre into the scene pass's vertical orientation. The
+  tested VRChat scene pass requires the inversion.
 - `debug_show_map` is diagnostic only and does not change the submitted image.
 - If the extension, GPU, driver, or render pass cannot support VRS, use normal
   shading and keep the frame valid.
@@ -190,4 +225,26 @@ repository:
 
 `aa-default.json` and `vrs-default.json` pin every key and default.
 `aa-center.json`, `aa-inverted.json`, and `aa-whole.json` pin the three
-weight-mode values. `vrs-rates.json` pins the seven allowed rate strings.
+weight-mode values. `vrs-rates.json` pins the seven allowed rate strings, the
+RADV GFX11 effective set, and the MSAA sample-count note.
+
+## 9. Reference implementation
+
+The A workstream uses `https://github.com/poprox24/vrchat-dfr-linux` as its
+primary reference. It is a Linux DXVK patch set for WiVRn gaze-driven VRS:
+
+- Custom scripts, configuration, and documentation: MIT.
+- DXVK patch: Zlib/libpng, same as DXVK. Binaries built from it are modified
+  DXVK, not the original.
+- Pinned DXVK base: `d30be2ba` (2026-10-01). Upstream master was `cf0a0d9`
+  (2026-11-02), 133 commits ahead at the time of this review.
+- The reference uses `DXVK_GAZE_FMT=97` (RGBA16F), `DXVK_GAZE_FLIP_Y=1`,
+  `DXVK_GAZE_FAKE=fixed` for a fixed centre, and a dynamic-rendering
+  `VkRenderingFragmentShadingRateAttachmentInfoKHR` attachment.
+- Our A0/A1 starts from the pinned revision to reuse the working patch, then
+  evaluates a forward-port to current master as a separate change. The
+  reference's shared-memory gaze input is replaced by the `vrs.json` centres;
+  the map generation, attachment, rate query, and diagnostic paths are
+  reusable.
+- Any copied or adapted code must retain the MIT notice for the custom code
+  and the DXVK Zlib notice for the DXVK-derived code.
