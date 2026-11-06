@@ -26,6 +26,7 @@ export GH_RELEASE_EXISTS=0
 : > "$GH_LOG"
 bash "$ROOT/scripts/github-release.sh" v0.1.1 "$APP"
 grep -q 'gh release create v0.1.1' "$GH_LOG"
+grep -q -- '--title tz-controller' "$GH_LOG"
 
 export GH_RELEASE_EXISTS=1
 : > "$GH_LOG"

@@ -1,12 +1,13 @@
-# XRizer-tz Config
+# tz-controller
 
-XRizer-tz-Custom の実験的空間アップスケーラと学習用キャプチャを、デスクトップ GUI から安全に設定するためのアプリです。egui / eframe で作られており、Linux（X11 / Wayland）で動作します。
+tz-controller は、tz-custom スイート（XRizer の AA と、今後追加する DXVK の VRS）の設定をデスクトップ GUI から安全に管理するアプリです。現在は XRizer-tz-Custom の実験的空間アップスケーラと学習用キャプチャを編集できます。egui / eframe で作られており、Linux（X11 / Wayland）で動作します。
 
 見た目よりも操作性と安全性を優先しています。項目の意味が分かること、変更が確実に本体へ届くこと、壊れた設定ファイルを出さないことを重視しています。
 
 ## できること
 
-- `~/.config/xrizer/upscaler.json` の全 14 項目を編集（実際は本体の優先順位で決まる実効ファイル）
+- XRizer AA: `~/.config/xrizer/upscaler.json` の全 14 項目を編集（実際は本体の優先順位で決まる実効ファイル）
+- DXVK VRS: 設定ページは今後追加予定（C2）
 - 未知のキーを値と順序を保ったまま書き戻す
 - 壊れた JSON は上書きせず、警告と生ファイル表示を出す
 - `xrizer_scale` を、本体が実際に読む実効パスへ書く
@@ -50,10 +51,10 @@ sudo apt-get install -y \
 ## ビルドと起動
 
 ```bash
-git clone https://github.com/TommyZ-7/XRizer-tz-Config.git
-cd XRizer-tz-Config
+git clone https://github.com/TommyZ-7/tz-controller.git
+cd tz-controller
 cargo build --release
-./target/release/xrizer-tz-config
+./target/release/tz-controller
 ```
 
 開発中は `cargo run` でも起動できます。
@@ -64,14 +65,14 @@ cargo build --release
 
 ```bash
 bash scripts/build-appimage.sh
-./dist/XRizer-tz-Config-0.1.2-x86_64.AppImage
+./dist/tz-controller-0.1.2-x86_64.AppImage
 ```
 
 GitHub Release / Actions artifact からダウンロードした場合は、実行ビットが落ちているため次を実行してください。
 
 ```bash
-chmod +x XRizer-tz-Config-0.1.2-x86_64.AppImage
-./XRizer-tz-Config-0.1.2-x86_64.AppImage
+chmod +x tz-controller-0.1.2-x86_64.AppImage
+./tz-controller-0.1.2-x86_64.AppImage
 ```
 
 - Release 用は GitHub Actions の Ubuntu 22.04（glibc 2.35）でビルドします。x86_64 のみです。ローカルビルドはホストの glibc に依存するため、配布用は CI の成果物を使ってください。
@@ -82,11 +83,17 @@ chmod +x XRizer-tz-Config-0.1.2-x86_64.AppImage
 - AppImage type 2 の通常起動には FUSE2 が必要です。
   - Debian / Ubuntu: `sudo apt install libfuse2`
   - Arch / CachyOS: `sudo pacman -S fuse2`
-  - FUSE2 がない場合: `APPIMAGE_EXTRACT_AND_RUN=1 ./dist/XRizer-tz-Config-0.1.2-x86_64.AppImage`
+  - FUSE2 がない場合: `APPIMAGE_EXTRACT_AND_RUN=1 ./dist/tz-controller-0.1.2-x86_64.AppImage`
 - `v*` タグを push すると GitHub Release に AppImage が添付されます。手動実行（`workflow_dispatch`）では artifact として保存されます。
-- リリース: https://github.com/TommyZ-7/XRizer-tz-Config/releases/tag/v0.1.2
+- リリース: https://github.com/TommyZ-7/tz-controller/releases/tag/v0.1.2
 
-![XRizer-tz Config AppImage](docs/images/appimage-window.png)
+![tz-controller AppImage](docs/images/appimage-window.png)
+
+### 旧名からの移行
+
+- 旧リポジトリ名 `TommyZ-7/XRizer-tz-Config` の URL は、GitHub のリポジトリ名変更後もリダイレクトで引き続き到達できます。
+- GUI 設定は `~/.config/tz-controller/settings.json` に保存します。新パスにファイルがない場合だけ、旧 `~/.config/xrizer-tz-config/settings.json` を読み取ります（旧ファイルは削除しません）。
+- 同梱フォントは `TZ_CONTROLLER_FONT` を優先し、旧 AppRun が設定する `XRIZER_TZ_CONFIG_FONT` もフォールバックとして読み取ります。
 
 ## 設定ファイルのパス優先順位
 
@@ -240,8 +247,8 @@ AppImage のローカルビルドには `patchelf`、`mksquashfs`、`file`、`cu
 
 テストは実ユーザーの `$HOME` / `$XDG_*` を変更せず、一時ディレクトリと合成 `Env` を使います。レイヤー導入テストは一時 `XDG_DATA_HOME` に対して実際に同梱スクリプトを実行します。
 
-設計書: `docs/superpowers/specs/2026-11-05-xrizer-tz-config-design.md`
-実装計画: `docs/superpowers/plans/2026-11-05-xrizer-tz-config.md`
+設計書: `docs/superpowers/specs/2026-11-05-tz-controller-design.md`
+実装計画: `docs/superpowers/plans/2026-11-05-tz-controller.md`
 
 ## ライセンス
 

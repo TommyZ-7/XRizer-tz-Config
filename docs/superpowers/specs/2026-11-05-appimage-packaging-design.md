@@ -1,8 +1,10 @@
-# XRizer-tz Config AppImage 設計書
+# tz-controller AppImage 設計書
+
+> **Historical note (rename C1, 2026-11-06):** この文書は旧名 `XRizer-tz Config` / `xrizer-tz-config` 時代の設計・実装記録です。現在の名前は `tz-controller` です。本文は現在の名前・パスに更新しています。
 
 - 日付: 2026-11-05
 - 状態: 実装済み（2026-11-05、v0.1.2 でフォント構成を修正）
-- 対象: `TommyZ-7/XRizer-tz-Config`
+- 対象: `TommyZ-7/tz-controller`
 - ライセンス: GPL-3.0-or-later（同梱フォントは SIL OFL 1.1）
 
 ## 1. 目的
@@ -21,7 +23,7 @@ XRizer-tz-Custom の設定 GUI を、ビルド済み Linux 環境へ配布しや
 
 ### ゴール
 
-- `scripts/build-appimage.sh` で `dist/XRizer-tz-Config-<version>-x86_64.AppImage` を生成できる。
+- `scripts/build-appimage.sh` で `dist/tz-controller-<version>-x86_64.AppImage` を生成できる。
 - 生成物を `--appimage-extract-and-run` で起動でき、通常の FUSE2 環境ではダブルクリック相当で起動できる。
 - Ubuntu 22.04 CI でビルド・起動スモークテスト・artifact 保存ができる。
 - タグ push で Release に AppImage が添付される。
@@ -58,9 +60,9 @@ XRizer-tz-Custom の設定 GUI を、ビルド済み Linux 環境へ配布しや
 ```
 assets/appimage/
 ├── AppRun
-├── io.github.tommyz7.XRizerTzConfig.desktop
-├── xrizer-tz-config.svg          # 仮アイコンの原本
-└── xrizer-tz-config.png          # 512x512、AppDir 用
+├── io.github.tommyz7.TzController.desktop
+├── tz-controller.svg          # 仮アイコンの原本
+└── tz-controller.png          # 512x512、AppDir 用
 assets/fonts/
 └── OFL.txt                       # Noto CJK の SIL OFL 1.1
 scripts/
@@ -69,12 +71,12 @@ scripts/
 └── appimage.yml
 ```
 
-- AppImage 名: `XRizer-tz-Config-<version>-x86_64.AppImage`
-- desktop ID: `io.github.tommyz7.XRizerTzConfig`
+- AppImage 名: `tz-controller-<version>-x86_64.AppImage`
+- desktop ID: `io.github.tommyz7.TzController`
 - AppDir 内:
-  - `usr/bin/xrizer-tz-config`
-  - `usr/share/applications/io.github.tommyz7.XRizerTzConfig.desktop`
-  - `usr/share/icons/hicolor/512x512/apps/io.github.tommyz7.XRizerTzConfig.png`
+  - `usr/bin/tz-controller`
+  - `usr/share/applications/io.github.tommyz7.TzController.desktop`
+  - `usr/share/icons/hicolor/512x512/apps/io.github.tommyz7.TzController.png`
   - `usr/share/fonts/noto/NotoSansCJK-Regular.ttc`（または JP OTF）
   - `AppRun`
 
@@ -85,12 +87,12 @@ scripts/
 - `APPDIR` を自身のディレクトリに設定
 - `PATH` に `usr/bin`
 - `LD_LIBRARY_PATH` に `usr/lib` と `usr/lib/x86_64-linux-gnu`
-- AppDir 内の Noto CJK フォントを探し、`XRIZER_TZ_CONFIG_FONT` に設定
-- `exec usr/bin/xrizer-tz-config "$@"`
+- AppDir 内の Noto CJK フォントを探し、`TZ_CONTROLLER_FONT` に設定
+- `exec usr/bin/tz-controller "$@"`
 
 アプリ側:
 
-- `main.rs` は `XRIZER_TZ_CONFIG_FONT` が存在する場合、`NativeOptions::system_font_fallback` を `false` にする。
+- `main.rs` は `TZ_CONTROLLER_FONT` が存在する場合、`NativeOptions::system_font_fallback` を `false` にする。
 - `App::new` はそのフォントを `egui::FontDefinitions` に追加し、Proportional / Monospace のフォールバックにする。
 - これにより AppImage はホストの fontconfig / システムフォントに依存せず、同梱 Noto CJK だけで日本語を表示する。Ubuntu 22.04 の同梱 libfontconfig と新しいホスト設定の互換性問題も避けられる。
 
@@ -113,7 +115,7 @@ scripts/
    - 見つからなければ pinned `Sans2.004` の `06_NotoSansCJKjp.zip` をダウンロードし、`NotoSansCJKjp-Regular.otf` を抽出（SHA256 検証）。
 5. AppDir を `target/appimage/AppDir` に構築。
 6. `linuxdeploy` で依存ライブラリを同梱。
-7. `appimagetool` で `dist/XRizer-tz-Config-<version>-x86_64.AppImage` を生成。
+7. `appimagetool` で `dist/tz-controller-<version>-x86_64.AppImage` を生成。
 8. 生成物のサイズと `--appimage-extract` の内容を表示。
 
 - 既存の `dist/` は `.gitignore` に追加。
@@ -134,9 +136,9 @@ scripts/
   1. checkout / Rust stable
   2. `bash scripts/build-appimage.sh`
   3. Xvfb 上で AppImage を通常起動
-  4. `timeout 30 xdotool search --sync --name "XRizer-tz Config"` でウィンドウを確認
+  4. `timeout 30 xdotool search --sync --name "tz-controller"` でウィンドウを確認
   5. スクリーンショットを取得
-  6. artifact `xrizer-tz-config-appimage` をアップロード
+  6. artifact `tz-controller-appimage` をアップロード
   7. タグ push の場合は `gh release create` / `gh release upload --clobber` で Release に添付
 - 手動実行時は artifact のみ。タグ時は artifact + Release。
 
@@ -147,7 +149,7 @@ scripts/
 1. `bash scripts/build-appimage.sh`
 2. `--appimage-extract` で desktop / icon / font / libs を確認。
 3. `APPIMAGE_EXTRACT_AND_RUN=1 ./dist/*.AppImage` を `DISPLAY=:0` で起動。
-4. `xprop` で `XRizer-tz Config` ウィンドウを確認。
+4. `xprop` で `tz-controller` ウィンドウを確認。
 5. `import` でスクリーンショットを取得し、日本語 UI と同梱フォントを確認。
 6. 可能ならローカルに `libfuse.so.2` を用意し、通常の AppImage 実行も確認。
 7. `ldd` で missing がないことを確認。
