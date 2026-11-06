@@ -1,11 +1,11 @@
 [package]
-name = "xrizer-tz-config"
+name = "tz-controller"
 version = "0.1.2"
 edition = "2024"
 rust-version = "1.95"
 license = "GPL-3.0-or-later"
-description = "Configuration GUI for the XRizer-tz-Custom spatial upscaler"
-repository = "https://github.com/TommyZ-7/XRizer-tz-Config"
+description = "Configuration GUI for the tz-custom suite: XRizer AA and DXVK VRS"
+repository = "https://github.com/TommyZ-7/tz-controller"
 
 [dependencies]
 eframe = { version = "0.37", default-features = false, features = [

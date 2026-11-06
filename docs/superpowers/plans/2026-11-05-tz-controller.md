@@ -1,4 +1,6 @@
-# XRizer-tz Config Implementation Plan
+# tz-controller Implementation Plan
+
+> **Historical note (rename C1, 2026-11-06):** この文書は旧名 `XRizer-tz Config` / `xrizer-tz-config` 時代の設計・実装記録です。現在の名前は `tz-controller` です。本文は現在の名前・パスに更新しています。
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -8,7 +10,7 @@
 
 **Tech Stack:** Rust 2024, eframe/egui 0.37 (glow, X11/Wayland, system_fonts), serde/serde_json (preserve_order), rfd 0.17, tempfile 3.
 
-**Spec:** `docs/superpowers/specs/2026-11-05-xrizer-tz-config-design.md`
+**Spec:** `docs/superpowers/specs/2026-11-05-tz-controller-design.md`
 
 ## Global Constraints
 
@@ -48,24 +50,24 @@
 - Create: `src/app.rs`
 - Create: `src/core/mod.rs`
 - Create: `src/ui/mod.rs`
-- Existing: `docs/superpowers/specs/2026-11-05-xrizer-tz-config-design.md`
-- Existing: `docs/superpowers/plans/2026-11-05-xrizer-tz-config.md`
+- Existing: `docs/superpowers/specs/2026-11-05-tz-controller-design.md`
+- Existing: `docs/superpowers/plans/2026-11-05-tz-controller.md`
 
 **Interfaces:**
 - Produces: `App::new(cc: &eframe::CreationContext<'_>) -> App`, `impl eframe::App for App`.
-- Produces: a compiling window titled `XRizer-tz Config`.
+- Produces: a compiling window titled `tz-controller`.
 
 - [ ] **Step 1: Create `Cargo.toml`**
 
 ```toml
 [package]
-name = "xrizer-tz-config"
+name = "tz-controller"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.95"
 license = "GPL-3.0-or-later"
 description = "Configuration GUI for the XRizer-tz-Custom spatial upscaler"
-repository = "https://github.com/TommyZ-7/XRizer-tz-Config"
+repository = "https://github.com/TommyZ-7/tz-controller"
 
 [dependencies]
 eframe = { version = "0.37", default-features = false, features = [
@@ -104,7 +106,7 @@ cp /home/tommyz7/work-saeki/xrizer/LICENSE LICENSE
 `README.md` placeholder:
 
 ```markdown
-# XRizer-tz Config
+# tz-controller
 
 XRizer-tz-Custom の空間アップスケーラ設定 GUI。
 
@@ -131,7 +133,7 @@ fn main() -> eframe::Result<()> {
         ..Default::default()
     };
     eframe::run_native(
-        "XRizer-tz Config",
+        "tz-controller",
         options,
         Box::new(|cc| Ok(Box::new(app::App::new(cc)))),
     )
@@ -176,7 +178,7 @@ impl App {
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut eframe::egui::Ui, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ui, |ui| {
-            ui.heading("XRizer-tz Config");
+            ui.heading("tz-controller");
             ui.label("準備中");
         });
     }
@@ -191,7 +193,7 @@ Run: `cargo check`
 Expected: success.
 
 Run: `cargo run` (if a display is available)
-Expected: a window titled `XRizer-tz Config` with the heading.
+Expected: a window titled `tz-controller` with the heading.
 
 - [ ] **Step 7: Configure git identity and create the first commit**
 
@@ -200,14 +202,14 @@ git config user.name "TommyZ-7"
 git config user.email "53462541+TommyZ-7@users.noreply.github.com"
 git branch -M main
 git add Cargo.toml Cargo.lock .gitignore LICENSE README.md src docs
-git commit -m "chore: bootstrap XRizer-tz Config"
+git commit -m "chore: bootstrap tz-controller"
 ```
 
 - [ ] **Step 8: Create the public GitHub repository and push**
 
 ```bash
-gh repo create TommyZ-7/XRizer-tz-Config --public --source=. --remote=origin --push
-gh repo view TommyZ-7/XRizer-tz-Config --json name,visibility,url
+gh repo create TommyZ-7/tz-controller --public --source=. --remote=origin --push
+gh repo view TommyZ-7/tz-controller --json name,visibility,url
 ```
 
 Expected: `"visibility":"PUBLIC"` and the repository URL.
@@ -217,7 +219,7 @@ Expected: `"visibility":"PUBLIC"` and the repository URL.
 The plan file is already in `docs/superpowers/plans/`. If it was not included in Step 7, commit it now:
 
 ```bash
-git add docs/superpowers/plans/2026-11-05-xrizer-tz-config.md
+git add docs/superpowers/plans/2026-11-05-tz-controller.md
 git commit -m "docs: add implementation plan"
 git push
 ```
@@ -1593,7 +1595,7 @@ pub fn save(
 ) -> Result<crate::core::atomic::WriteOutcome, String>;
 ```
 
-- Path: `$XDG_CONFIG_HOME/xrizer-tz-config/settings.json`, else `$HOME/.config/xrizer-tz-config/settings.json`, else `/tmp/xrizer-tz-config/settings.json`.
+- Path: `$XDG_CONFIG_HOME/tz-controller/settings.json`, else `$HOME/.config/tz-controller/settings.json`, else `/tmp/tz-controller/settings.json`.
 - Load: missing -> defaults, no warning. Parse error -> defaults + warning string. Never fail the app.
 - Save: `serde_json::to_string_pretty` + newline, `write_atomic(..., BackupPolicy::BeforeReplace)`.
 
@@ -1607,7 +1609,7 @@ fn settings_path_follows_xdg() {
         xdg_config_home: Some("/home/u/.config".into()),
         ..Default::default()
     };
-    assert_eq!(path(&env), "/home/u/.config/xrizer-tz-config/settings.json");
+    assert_eq!(path(&env), "/home/u/.config/tz-controller/settings.json");
 }
 
 #[test]
@@ -2443,7 +2445,7 @@ Cover:
 - Build:
   ```bash
   cargo build --release
-  ./target/release/xrizer-tz-config
+  ./target/release/tz-controller
   ```
 - Tabs and what they do.
 - Path priority tables for `upscaler.json` and `xrizer_scale`.
@@ -2504,7 +2506,7 @@ export TESTROOT=/tmp/xrizer-gui-test
 mkdir -p "$TESTROOT/config" "$TESTROOT/run" "$TESTROOT/data" "$TESTROOT/home"
 HOME="$TESTROOT/home" XDG_CONFIG_HOME="$TESTROOT/config" \
 XDG_RUNTIME_DIR="$TESTROOT/run" XDG_DATA_HOME="$TESTROOT/data" \
-./target/release/xrizer-tz-config
+./target/release/tz-controller
 ```
 
 - All 6 tabs open.

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=tz-controller
+Comment=Configuration GUI for the tz-custom suite (XRizer AA and DXVK VRS)
+Exec=tz-controller
+Icon=io.github.tommyz7.TzController
+Categories=Settings;
+Terminal=false
+StartupWMClass=tz-controller

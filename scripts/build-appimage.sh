@@ -7,14 +7,14 @@ cd "$ROOT"
 VERSION="${VERSION:-$(awk -F'"' '/^version = / {print $2; exit}' Cargo.toml)}"
 VERSION="${VERSION#v}"
 ARCH="x86_64"
-APP_NAME="XRizer-tz-Config-${VERSION}-${ARCH}.AppImage"
+APP_NAME="tz-controller-${VERSION}-${ARCH}.AppImage"
 TARGET_DIR="${CARGO_TARGET_DIR:-$ROOT/target}"
 DIST="$ROOT/dist"
 TOOLS_DIR="${APPIMAGE_TOOLS_DIR:-$TARGET_DIR/appimage-tools}"
 CACHE_DIR="$TARGET_DIR/appimage-cache"
 APPIMAGE_DIR="$TARGET_DIR/appimage"
 APPDIR="$APPIMAGE_DIR/AppDir"
-DESKTOP_ID="io.github.tommyz7.XRizerTzConfig"
+DESKTOP_ID="io.github.tommyz7.TzController"
 
 LINUXDEPLOY_URL="https://github.com/linuxdeploy/linuxdeploy/releases/download/1-alpha-20251107-1/linuxdeploy-x86_64.AppImage"
 LINUXDEPLOY_SHA="c20cd71e3a4e3b80c3483cef793cda3f4e990aca14014d23c544ca3ce1270b4d"
@@ -155,14 +155,14 @@ mkdir -p \
     "$APPDIR/usr/share/applications" \
     "$APPDIR/usr/share/icons/hicolor/512x512/apps" \
     "$APPDIR/usr/share/fonts/noto" \
-    "$APPDIR/usr/share/doc/xrizer-tz-config"
+    "$APPDIR/usr/share/doc/tz-controller"
 
-install -m755 "$TARGET_DIR/release/xrizer-tz-config" "$APPDIR/usr/bin/xrizer-tz-config"
+install -m755 "$TARGET_DIR/release/tz-controller" "$APPDIR/usr/bin/tz-controller"
 install -m644 "$ROOT/assets/appimage/${DESKTOP_ID}.desktop" "$APPDIR/usr/share/applications/${DESKTOP_ID}.desktop"
-install -m644 "$ROOT/assets/appimage/xrizer-tz-config.png" "$APPDIR/usr/share/icons/hicolor/512x512/apps/${DESKTOP_ID}.png"
+install -m644 "$ROOT/assets/appimage/tz-controller.png" "$APPDIR/usr/share/icons/hicolor/512x512/apps/${DESKTOP_ID}.png"
 install -m644 "$FONT" "$APPDIR/usr/share/fonts/noto/$(basename "$FONT")"
-install -m644 "$ROOT/assets/fonts/OFL.txt" "$APPDIR/usr/share/doc/xrizer-tz-config/OFL.txt"
-install -m644 "$ROOT/LICENSE" "$APPDIR/usr/share/doc/xrizer-tz-config/LICENSE"
+install -m644 "$ROOT/assets/fonts/OFL.txt" "$APPDIR/usr/share/doc/tz-controller/OFL.txt"
+install -m644 "$ROOT/LICENSE" "$APPDIR/usr/share/doc/tz-controller/LICENSE"
 install -m755 "$ROOT/assets/appimage/AppRun" "$APPDIR/AppRun"
 
 log "deploying dependencies with linuxdeploy"
@@ -170,7 +170,7 @@ export APPIMAGE_EXTRACT_AND_RUN=1
 export NO_STRIP=1
 "$LINUXDEPLOY" \
     --appdir "$APPDIR" \
-    --executable "$APPDIR/usr/bin/xrizer-tz-config" \
+    --executable "$APPDIR/usr/bin/tz-controller" \
     --desktop-file "$APPDIR/usr/share/applications/${DESKTOP_ID}.desktop" \
     --icon-file "$APPDIR/usr/share/icons/hicolor/512x512/apps/${DESKTOP_ID}.png" \
     --custom-apprun "$ROOT/assets/appimage/AppRun" \

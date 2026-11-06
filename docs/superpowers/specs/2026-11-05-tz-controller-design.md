@@ -1,8 +1,10 @@
-# XRizer-tz Config 設計書
+# tz-controller 設計書
+
+> **Historical note (rename C1, 2026-11-06):** この文書は旧名 `XRizer-tz Config` / `xrizer-tz-config` 時代の設計・実装記録です。現在の名前は `tz-controller` です。本文は現在の名前・パスに更新しています。
 
 - 日付: 2026-11-05
 - 状態: 設計レビュー待ち
-- リポジトリ: `TommyZ-7/XRizer-tz-Config`（public、新規）
+- リポジトリ: `TommyZ-7/tz-controller`（public、新規）
 - ライセンス: GPL-3.0-or-later
 
 ## 1. 目的と背景
@@ -95,7 +97,7 @@ XRizer-tz-Custom の実験的空間アップスケーラと学習用キャプチ
 ## 5. 全体構成
 
 ```
-xrizer-tz-config/
+tz-controller/
 ├── Cargo.toml
 ├── Cargo.lock
 ├── LICENSE                     # GPL-3.0
@@ -104,7 +106,7 @@ xrizer-tz-config/
 │   ├── README.md               # 同梱元 commit / sha256 / ライセンス
 │   ├── install-vulkan-layer.sh # XRizer main から同梱
 │   └── manifest.json.in        # XRizer main から同梱
-├── docs/superpowers/specs/2026-11-05-xrizer-tz-config-design.md
+├── docs/superpowers/specs/2026-11-05-tz-controller-design.md
 ├── src/
 │   ├── main.rs                 # eframe 起動、ウィンドウ設定
 │   ├── app.rs                  # App 状態、タブ、ポーリング、保存調停
@@ -185,7 +187,7 @@ UI 操作
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│ XRizer-tz Config   [設定: 正常] [スケール: 70%] [レイヤー: 未導入]   │
+│ tz-controller   [設定: 正常] [スケール: 70%] [レイヤー: 未導入]   │
 │                                      [再読み込み] [● 未保存] [保存] │
 ├───────────────┬──────────────────────────────────────────────────────┤
 │ アップスケーラ │  アップスケーラ                                       │
@@ -739,7 +741,7 @@ fn shell_quote(value: &str) -> Result<String, String>
 
 ## 13. GUI 自身の設定
 
-- パス: `$XDG_CONFIG_HOME/xrizer-tz-config/settings.json`、無ければ `$HOME/.config/xrizer-tz-config/settings.json`、無ければ `/tmp/xrizer-tz-config/settings.json`。
+- パス: `$XDG_CONFIG_HOME/tz-controller/settings.json`、無ければ `$HOME/.config/tz-controller/settings.json`、無ければ `/tmp/tz-controller/settings.json`。
 - 内容:
   - `layer_so_path: Option<String>`
   - `last_model_dir: Option<String>`
@@ -825,7 +827,7 @@ fn shell_quote(value: &str) -> Result<String, String>
 
 ## 16. リポジトリ / 配布
 
-- GitHub `TommyZ-7/XRizer-tz-Config`（public）。
+- GitHub `TommyZ-7/tz-controller`（public）。
 - ブランチ: `main`。
 - 初期コミットに設計書を含める。
 - `Cargo.lock` をコミット（バイナリ）。

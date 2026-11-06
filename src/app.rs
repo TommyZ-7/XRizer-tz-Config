@@ -522,7 +522,7 @@ pub struct App {
 }
 
 fn load_bundled_font(ctx: &egui::Context) {
-    let Some(path) = std::env::var_os("XRIZER_TZ_CONFIG_FONT") else {
+    let Some(path) = crate::bundled_font_path() else {
         return;
     };
     let bytes = match std::fs::read(&path) {
@@ -530,14 +530,14 @@ fn load_bundled_font(ctx: &egui::Context) {
         Err(error) => {
             eprintln!(
                 "warning: could not read bundled font {}: {error}",
-                std::path::Path::new(&path).display()
+                path.display()
             );
             return;
         }
     };
     let mut fonts = egui::FontDefinitions::default();
     fonts.font_data.insert(
-        "xrizer_bundled".to_string(),
+        "tz_controller_bundled".to_string(),
         std::sync::Arc::new(egui::FontData::from_owned(bytes)),
     );
     for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
@@ -545,7 +545,7 @@ fn load_bundled_font(ctx: &egui::Context) {
             .families
             .entry(family)
             .or_default()
-            .push("xrizer_bundled".to_string());
+            .push("tz_controller_bundled".to_string());
     }
     ctx.set_fonts(fonts);
 }
@@ -932,7 +932,7 @@ impl App {
         let mut save_clicked = false;
         let mut reload_clicked = false;
         ui.horizontal(|ui| {
-            ui.heading("XRizer-tz Config");
+            ui.heading("tz-controller");
             ui.separator();
             let (config_text, config_color) = match &self.config.state {
                 ConfigState::Loaded => ("設定: 正常", egui::Color32::from_rgb(130, 210, 140)),

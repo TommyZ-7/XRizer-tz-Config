@@ -8,6 +8,6 @@ if gh release view "$TAG" >/dev/null 2>&1; then
     gh release upload "$TAG" "$APP" --clobber
 else
     gh release create "$TAG" "$APP" \
-        --title "XRizer-tz Config ${TAG#v}" \
+        --title "tz-controller ${TAG#v}" \
         --generate-notes
 fi
